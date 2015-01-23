@@ -5,7 +5,7 @@
  * A dynamic, browser-based visualization library.
  *
  * @version 3.9.1
- * @date    2015-01-22
+ * @date    2015-01-23
  *
  * @license
  * Copyright (C) 2011-2014 Almende B.V, http://almende.com
@@ -116,8 +116,8 @@ return /******/ (function(modules) { // webpackBootstrap
         Item: __webpack_require__(20),
         BackgroundItem: __webpack_require__(21),
         BoxItem: __webpack_require__(22),
-        PointItem: __webpack_require__(24),
-        RangeItem: __webpack_require__(23)
+        PointItem: __webpack_require__(23),
+        RangeItem: __webpack_require__(24)
       },
 
       Component: __webpack_require__(25),
@@ -9354,7 +9354,7 @@ return /******/ (function(modules) { // webpackBootstrap
   var Hammer = __webpack_require__(45);
   var Item = __webpack_require__(20);
   var BackgroundGroup = __webpack_require__(31);
-  var RangeItem = __webpack_require__(23);
+  var RangeItem = __webpack_require__(24);
 
   /**
    * @constructor BackgroundItem
@@ -9795,6 +9795,195 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
+  var Item = __webpack_require__(20);
+
+  /**
+   * @constructor PointItem
+   * @extends Item
+   * @param {Object} data             Object containing parameters start
+   *                                  content, className.
+   * @param {{toScreen: function, toTime: function}} conversion
+   *                                  Conversion functions from time to screen and vice versa
+   * @param {Object} [options]        Configuration options
+   *                                  // TODO: describe available options
+   */
+  function PointItem (data, conversion, options) {
+    this.props = {
+      dot: {
+        top: 0,
+        width: 0,
+        height: 0
+      },
+      content: {
+        height: 0,
+        marginLeft: 0
+      }
+    };
+
+    // validate data
+    if (data) {
+      if (data.start == undefined) {
+        throw new Error('Property "start" missing in item ' + data);
+      }
+    }
+
+    Item.call(this, data, conversion, options);
+  }
+
+  PointItem.prototype = new Item (null, null, null);
+
+  /**
+   * Check whether this item is visible inside given range
+   * @returns {{start: Number, end: Number}} range with a timestamp for start and end
+   * @returns {boolean} True if visible
+   */
+  PointItem.prototype.isVisible = function(range) {
+    // determine visibility
+    // TODO: account for the real width of the item. Right now we just add 1/4 to the window
+    var interval = (range.end - range.start) / 4;
+    return (this.data.start > range.start - interval) && (this.data.start < range.end + interval);
+  };
+
+  /**
+   * Repaint the item
+   */
+  PointItem.prototype.redraw = function() {
+    var dom = this.dom;
+    if (!dom) {
+      // create DOM
+      this.dom = {};
+      dom = this.dom;
+
+      // background box
+      dom.point = document.createElement('div');
+      // className is updated in redraw()
+
+      // contents box, right from the dot
+      dom.content = document.createElement('div');
+      dom.content.className = 'content';
+      dom.point.appendChild(dom.content);
+
+      // dot at start
+      dom.dot = document.createElement('div');
+      dom.point.appendChild(dom.dot);
+
+      // attach this item as attribute
+      dom.point['timeline-item'] = this;
+
+      this.dirty = true;
+    }
+
+    // append DOM to parent DOM
+    if (!this.parent) {
+      throw new Error('Cannot redraw item: no parent attached');
+    }
+    if (!dom.point.parentNode) {
+      var foreground = this.parent.dom.foreground;
+      if (!foreground) {
+        throw new Error('Cannot redraw item: parent has no foreground container element');
+      }
+      foreground.appendChild(dom.point);
+    }
+    this.displayed = true;
+
+    // Update DOM when item is marked dirty. An item is marked dirty when:
+    // - the item is not yet rendered
+    // - the item's data is changed
+    // - the item is selected/deselected
+    if (this.dirty) {
+      this._updateContents(this.dom.content);
+      this._updateTitle(this.dom.point);
+      this._updateDataAttributes(this.dom.point);
+      this._updateStyle(this.dom.point);
+
+      // update class
+      var className = (this.data.className? ' ' + this.data.className : '') +
+          (this.selected ? ' selected' : '');
+      dom.point.className  = 'item point' + className;
+      dom.dot.className  = 'item dot' + className;
+
+      // recalculate size
+      this.width = dom.point.offsetWidth;
+      this.height = dom.point.offsetHeight;
+      this.props.dot.width = dom.dot.offsetWidth;
+      this.props.dot.height = dom.dot.offsetHeight;
+      this.props.content.height = dom.content.offsetHeight;
+
+      // resize contents
+      dom.content.style.marginLeft = 2 * this.props.dot.width + 'px';
+      //dom.content.style.marginRight = ... + 'px'; // TODO: margin right
+
+      dom.dot.style.top = ((this.height - this.props.dot.height) / 2) + 'px';
+      dom.dot.style.left = (this.props.dot.width / 2) + 'px';
+
+      this.dirty = false;
+    }
+
+    this._repaintDeleteButton(dom.point);
+  };
+
+  /**
+   * Show the item in the DOM (when not already visible). The items DOM will
+   * be created when needed.
+   */
+  PointItem.prototype.show = function() {
+    if (!this.displayed) {
+      this.redraw();
+    }
+  };
+
+  /**
+   * Hide the item from the DOM (when visible)
+   */
+  PointItem.prototype.hide = function() {
+    if (this.displayed) {
+      if (this.dom.point.parentNode) {
+        this.dom.point.parentNode.removeChild(this.dom.point);
+      }
+
+      this.top = null;
+      this.left = null;
+
+      this.displayed = false;
+    }
+  };
+
+  /**
+   * Reposition the item horizontally
+   * @Override
+   */
+  PointItem.prototype.repositionX = function() {
+    var start = this.conversion.toScreen(this.data.start);
+
+    this.left = start - this.props.dot.width;
+
+    // reposition point
+    this.dom.point.style.left = this.left + 'px';
+  };
+
+  /**
+   * Reposition the item vertically
+   * @Override
+   */
+  PointItem.prototype.repositionY = function() {
+    var orientation = this.options.orientation,
+        point = this.dom.point;
+
+    if (orientation == 'top') {
+      point.style.top = this.top + 'px';
+    }
+    else {
+      point.style.top = (this.parent.height - this.top - this.height) + 'px';
+    }
+  };
+
+  module.exports = PointItem;
+
+
+/***/ },
+/* 24 */
+/***/ function(module, exports, __webpack_require__) {
+
   var Hammer = __webpack_require__(45);
   var Item = __webpack_require__(20);
 
@@ -9999,7 +10188,7 @@ return /******/ (function(modules) { // webpackBootstrap
         // when range exceeds left of the window, position the contents at the left of the visible area
         if (this.overflow) {
           if (end > 0) {
-            contentLeft = Math.max(-start, 0);
+            //contentLeft = Math.max(-start, 0);
           }
           else {
             contentLeft = -contentWidth; // ensure it's not visible anymore
@@ -10096,195 +10285,6 @@ return /******/ (function(modules) { // webpackBootstrap
   };
 
   module.exports = RangeItem;
-
-
-/***/ },
-/* 24 */
-/***/ function(module, exports, __webpack_require__) {
-
-  var Item = __webpack_require__(20);
-
-  /**
-   * @constructor PointItem
-   * @extends Item
-   * @param {Object} data             Object containing parameters start
-   *                                  content, className.
-   * @param {{toScreen: function, toTime: function}} conversion
-   *                                  Conversion functions from time to screen and vice versa
-   * @param {Object} [options]        Configuration options
-   *                                  // TODO: describe available options
-   */
-  function PointItem (data, conversion, options) {
-    this.props = {
-      dot: {
-        top: 0,
-        width: 0,
-        height: 0
-      },
-      content: {
-        height: 0,
-        marginLeft: 0
-      }
-    };
-
-    // validate data
-    if (data) {
-      if (data.start == undefined) {
-        throw new Error('Property "start" missing in item ' + data);
-      }
-    }
-
-    Item.call(this, data, conversion, options);
-  }
-
-  PointItem.prototype = new Item (null, null, null);
-
-  /**
-   * Check whether this item is visible inside given range
-   * @returns {{start: Number, end: Number}} range with a timestamp for start and end
-   * @returns {boolean} True if visible
-   */
-  PointItem.prototype.isVisible = function(range) {
-    // determine visibility
-    // TODO: account for the real width of the item. Right now we just add 1/4 to the window
-    var interval = (range.end - range.start) / 4;
-    return (this.data.start > range.start - interval) && (this.data.start < range.end + interval);
-  };
-
-  /**
-   * Repaint the item
-   */
-  PointItem.prototype.redraw = function() {
-    var dom = this.dom;
-    if (!dom) {
-      // create DOM
-      this.dom = {};
-      dom = this.dom;
-
-      // background box
-      dom.point = document.createElement('div');
-      // className is updated in redraw()
-
-      // contents box, right from the dot
-      dom.content = document.createElement('div');
-      dom.content.className = 'content';
-      dom.point.appendChild(dom.content);
-
-      // dot at start
-      dom.dot = document.createElement('div');
-      dom.point.appendChild(dom.dot);
-
-      // attach this item as attribute
-      dom.point['timeline-item'] = this;
-
-      this.dirty = true;
-    }
-
-    // append DOM to parent DOM
-    if (!this.parent) {
-      throw new Error('Cannot redraw item: no parent attached');
-    }
-    if (!dom.point.parentNode) {
-      var foreground = this.parent.dom.foreground;
-      if (!foreground) {
-        throw new Error('Cannot redraw item: parent has no foreground container element');
-      }
-      foreground.appendChild(dom.point);
-    }
-    this.displayed = true;
-
-    // Update DOM when item is marked dirty. An item is marked dirty when:
-    // - the item is not yet rendered
-    // - the item's data is changed
-    // - the item is selected/deselected
-    if (this.dirty) {
-      this._updateContents(this.dom.content);
-      this._updateTitle(this.dom.point);
-      this._updateDataAttributes(this.dom.point);
-      this._updateStyle(this.dom.point);
-
-      // update class
-      var className = (this.data.className? ' ' + this.data.className : '') +
-          (this.selected ? ' selected' : '');
-      dom.point.className  = 'item point' + className;
-      dom.dot.className  = 'item dot' + className;
-
-      // recalculate size
-      this.width = dom.point.offsetWidth;
-      this.height = dom.point.offsetHeight;
-      this.props.dot.width = dom.dot.offsetWidth;
-      this.props.dot.height = dom.dot.offsetHeight;
-      this.props.content.height = dom.content.offsetHeight;
-
-      // resize contents
-      dom.content.style.marginLeft = 2 * this.props.dot.width + 'px';
-      //dom.content.style.marginRight = ... + 'px'; // TODO: margin right
-
-      dom.dot.style.top = ((this.height - this.props.dot.height) / 2) + 'px';
-      dom.dot.style.left = (this.props.dot.width / 2) + 'px';
-
-      this.dirty = false;
-    }
-
-    this._repaintDeleteButton(dom.point);
-  };
-
-  /**
-   * Show the item in the DOM (when not already visible). The items DOM will
-   * be created when needed.
-   */
-  PointItem.prototype.show = function() {
-    if (!this.displayed) {
-      this.redraw();
-    }
-  };
-
-  /**
-   * Hide the item from the DOM (when visible)
-   */
-  PointItem.prototype.hide = function() {
-    if (this.displayed) {
-      if (this.dom.point.parentNode) {
-        this.dom.point.parentNode.removeChild(this.dom.point);
-      }
-
-      this.top = null;
-      this.left = null;
-
-      this.displayed = false;
-    }
-  };
-
-  /**
-   * Reposition the item horizontally
-   * @Override
-   */
-  PointItem.prototype.repositionX = function() {
-    var start = this.conversion.toScreen(this.data.start);
-
-    this.left = start - this.props.dot.width;
-
-    // reposition point
-    this.dom.point.style.left = this.left + 'px';
-  };
-
-  /**
-   * Reposition the item vertically
-   * @Override
-   */
-  PointItem.prototype.repositionY = function() {
-    var orientation = this.options.orientation,
-        point = this.dom.point;
-
-    if (orientation == 'top') {
-      point.style.top = this.top + 'px';
-    }
-    else {
-      point.style.top = (this.parent.height - this.top - this.height) + 'px';
-    }
-  };
-
-  module.exports = PointItem;
 
 
 /***/ },
@@ -11574,7 +11574,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var stack = __webpack_require__(18);
-  var RangeItem = __webpack_require__(23);
+  var RangeItem = __webpack_require__(24);
 
   /**
    * @constructor Group
@@ -11781,7 +11781,7 @@ return /******/ (function(modules) { // webpackBootstrap
    * @private
    */
   Group.prototype._calculateHeight = function (margin) {
-    return 46;
+    return 40;
     // recalculate the height of the group
     var height;
     var visibleItems = this.visibleItems;
@@ -12219,8 +12219,8 @@ return /******/ (function(modules) { // webpackBootstrap
   var Group = __webpack_require__(30);
   var BackgroundGroup = __webpack_require__(31);
   var BoxItem = __webpack_require__(22);
-  var PointItem = __webpack_require__(24);
-  var RangeItem = __webpack_require__(23);
+  var PointItem = __webpack_require__(23);
+  var RangeItem = __webpack_require__(24);
   var BackgroundItem = __webpack_require__(21);
 
 
@@ -23346,12 +23346,12 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var PhysicsMixin = __webpack_require__(60);
-  var ClusterMixin = __webpack_require__(63);
-  var SectorsMixin = __webpack_require__(61);
-  var SelectionMixin = __webpack_require__(66);
-  var ManipulationMixin = __webpack_require__(62);
+  var ClusterMixin = __webpack_require__(61);
+  var SectorsMixin = __webpack_require__(62);
+  var SelectionMixin = __webpack_require__(63);
+  var ManipulationMixin = __webpack_require__(64);
   var NavigationMixin = __webpack_require__(65);
-  var HierarchicalLayoutMixin = __webpack_require__(64);
+  var HierarchicalLayoutMixin = __webpack_require__(66);
 
   /**
    * Load a mixin into the network object
@@ -29565,9 +29565,9 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var RepulsionMixin = __webpack_require__(68);
-  var HierarchialRepulsionMixin = __webpack_require__(69);
-  var BarnesHutMixin = __webpack_require__(70);
+  var RepulsionMixin = __webpack_require__(67);
+  var HierarchialRepulsionMixin = __webpack_require__(68);
+  var BarnesHutMixin = __webpack_require__(69);
 
   /**
    * Toggling barnes Hut calculation on and off.
@@ -30289,1262 +30289,6 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 61 */
-/***/ function(module, exports, __webpack_require__) {
-
-  var util = __webpack_require__(1);
-  var Node = __webpack_require__(40);
-
-  /**
-   * Creation of the SectorMixin var.
-   *
-   * This contains all the functions the Network object can use to employ the sector system.
-   * The sector system is always used by Network, though the benefits only apply to the use of clustering.
-   * If clustering is not used, there is no overhead except for a duplicate object with references to nodes and edges.
-   */
-
-  /**
-   * This function is only called by the setData function of the Network object.
-   * This loads the global references into the active sector. This initializes the sector.
-   *
-   * @private
-   */
-  exports._putDataInSector = function() {
-    this.sectors["active"][this._sector()].nodes = this.nodes;
-    this.sectors["active"][this._sector()].edges = this.edges;
-    this.sectors["active"][this._sector()].nodeIndices = this.nodeIndices;
-  };
-
-
-  /**
-   *  /**
-   * This function sets the global references to nodes, edges and nodeIndices back to
-   * those of the supplied (active) sector. If a type is defined, do the specific type
-   *
-   * @param {String} sectorId
-   * @param {String} [sectorType] | "active" or "frozen"
-   * @private
-   */
-  exports._switchToSector = function(sectorId, sectorType) {
-    if (sectorType === undefined || sectorType == "active") {
-      this._switchToActiveSector(sectorId);
-    }
-    else {
-      this._switchToFrozenSector(sectorId);
-    }
-  };
-
-
-  /**
-   * This function sets the global references to nodes, edges and nodeIndices back to
-   * those of the supplied active sector.
-   *
-   * @param sectorId
-   * @private
-   */
-  exports._switchToActiveSector = function(sectorId) {
-    this.nodeIndices = this.sectors["active"][sectorId]["nodeIndices"];
-    this.nodes       = this.sectors["active"][sectorId]["nodes"];
-    this.edges       = this.sectors["active"][sectorId]["edges"];
-  };
-
-
-  /**
-   * This function sets the global references to nodes, edges and nodeIndices back to
-   * those of the supplied active sector.
-   *
-   * @private
-   */
-  exports._switchToSupportSector = function() {
-    this.nodeIndices = this.sectors["support"]["nodeIndices"];
-    this.nodes       = this.sectors["support"]["nodes"];
-    this.edges       = this.sectors["support"]["edges"];
-  };
-
-
-  /**
-   * This function sets the global references to nodes, edges and nodeIndices back to
-   * those of the supplied frozen sector.
-   *
-   * @param sectorId
-   * @private
-   */
-  exports._switchToFrozenSector = function(sectorId) {
-    this.nodeIndices = this.sectors["frozen"][sectorId]["nodeIndices"];
-    this.nodes       = this.sectors["frozen"][sectorId]["nodes"];
-    this.edges       = this.sectors["frozen"][sectorId]["edges"];
-  };
-
-
-  /**
-   * This function sets the global references to nodes, edges and nodeIndices back to
-   * those of the currently active sector.
-   *
-   * @private
-   */
-  exports._loadLatestSector = function() {
-    this._switchToSector(this._sector());
-  };
-
-
-  /**
-   * This function returns the currently active sector Id
-   *
-   * @returns {String}
-   * @private
-   */
-  exports._sector = function() {
-    return this.activeSector[this.activeSector.length-1];
-  };
-
-
-  /**
-   * This function returns the previously active sector Id
-   *
-   * @returns {String}
-   * @private
-   */
-  exports._previousSector = function() {
-    if (this.activeSector.length > 1) {
-      return this.activeSector[this.activeSector.length-2];
-    }
-    else {
-      throw new TypeError('there are not enough sectors in the this.activeSector array.');
-    }
-  };
-
-
-  /**
-   * We add the active sector at the end of the this.activeSector array
-   * This ensures it is the currently active sector returned by _sector() and it reaches the top
-   * of the activeSector stack. When we reverse our steps we move from the end to the beginning of this stack.
-   *
-   * @param newId
-   * @private
-   */
-  exports._setActiveSector = function(newId) {
-    this.activeSector.push(newId);
-  };
-
-
-  /**
-   * We remove the currently active sector id from the active sector stack. This happens when
-   * we reactivate the previously active sector
-   *
-   * @private
-   */
-  exports._forgetLastSector = function() {
-    this.activeSector.pop();
-  };
-
-
-  /**
-   * This function creates a new active sector with the supplied newId. This newId
-   * is the expanding node id.
-   *
-   * @param {String} newId   | Id of the new active sector
-   * @private
-   */
-  exports._createNewSector = function(newId) {
-    // create the new sector
-    this.sectors["active"][newId] = {"nodes":{},
-                                     "edges":{},
-                                     "nodeIndices":[],
-                                     "formationScale": this.scale,
-                                     "drawingNode": undefined};
-
-    // create the new sector render node. This gives visual feedback that you are in a new sector.
-    this.sectors["active"][newId]['drawingNode'] = new Node(
-        {id:newId,
-          color: {
-            background: "#eaefef",
-            border: "495c5e"
-          }
-        },{},{},this.constants);
-    this.sectors["active"][newId]['drawingNode'].clusterSize = 2;
-  };
-
-
-  /**
-   * This function removes the currently active sector. This is called when we create a new
-   * active sector.
-   *
-   * @param {String} sectorId   | Id of the active sector that will be removed
-   * @private
-   */
-  exports._deleteActiveSector = function(sectorId) {
-    delete this.sectors["active"][sectorId];
-  };
-
-
-  /**
-   * This function removes the currently active sector. This is called when we reactivate
-   * the previously active sector.
-   *
-   * @param {String} sectorId   | Id of the active sector that will be removed
-   * @private
-   */
-  exports._deleteFrozenSector = function(sectorId) {
-    delete this.sectors["frozen"][sectorId];
-  };
-
-
-  /**
-   * Freezing an active sector means moving it from the "active" object to the "frozen" object.
-   * We copy the references, then delete the active entree.
-   *
-   * @param sectorId
-   * @private
-   */
-  exports._freezeSector = function(sectorId) {
-    // we move the set references from the active to the frozen stack.
-    this.sectors["frozen"][sectorId] = this.sectors["active"][sectorId];
-
-    // we have moved the sector data into the frozen set, we now remove it from the active set
-    this._deleteActiveSector(sectorId);
-  };
-
-
-  /**
-   * This is the reverse operation of _freezeSector. Activating means moving the sector from the "frozen"
-   * object to the "active" object.
-   *
-   * @param sectorId
-   * @private
-   */
-  exports._activateSector = function(sectorId) {
-    // we move the set references from the frozen to the active stack.
-    this.sectors["active"][sectorId] = this.sectors["frozen"][sectorId];
-
-    // we have moved the sector data into the active set, we now remove it from the frozen stack
-    this._deleteFrozenSector(sectorId);
-  };
-
-
-  /**
-   * This function merges the data from the currently active sector with a frozen sector. This is used
-   * in the process of reverting back to the previously active sector.
-   * The data that is placed in the frozen (the previously active) sector is the node that has been removed from it
-   * upon the creation of a new active sector.
-   *
-   * @param sectorId
-   * @private
-   */
-  exports._mergeThisWithFrozen = function(sectorId) {
-    // copy all nodes
-    for (var nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        this.sectors["frozen"][sectorId]["nodes"][nodeId] = this.nodes[nodeId];
-      }
-    }
-
-    // copy all edges (if not fully clustered, else there are no edges)
-    for (var edgeId in this.edges) {
-      if (this.edges.hasOwnProperty(edgeId)) {
-        this.sectors["frozen"][sectorId]["edges"][edgeId] = this.edges[edgeId];
-      }
-    }
-
-    // merge the nodeIndices
-    for (var i = 0; i < this.nodeIndices.length; i++) {
-      this.sectors["frozen"][sectorId]["nodeIndices"].push(this.nodeIndices[i]);
-    }
-  };
-
-
-  /**
-   * This clusters the sector to one cluster. It was a single cluster before this process started so
-   * we revert to that state. The clusterToFit function with a maximum size of 1 node does this.
-   *
-   * @private
-   */
-  exports._collapseThisToSingleCluster = function() {
-    this.clusterToFit(1,false);
-  };
-
-
-  /**
-   * We create a new active sector from the node that we want to open.
-   *
-   * @param node
-   * @private
-   */
-  exports._addSector = function(node) {
-    // this is the currently active sector
-    var sector = this._sector();
-
-  //    // this should allow me to select nodes from a frozen set.
-  //    if (this.sectors['active'][sector]["nodes"].hasOwnProperty(node.id)) {
-  //      console.log("the node is part of the active sector");
-  //    }
-  //    else {
-  //      console.log("I dont know what the fuck happened!!");
-  //    }
-
-    // when we switch to a new sector, we remove the node that will be expanded from the current nodes list.
-    delete this.nodes[node.id];
-
-    var unqiueIdentifier = util.randomUUID();
-
-    // we fully freeze the currently active sector
-    this._freezeSector(sector);
-
-    // we create a new active sector. This sector has the Id of the node to ensure uniqueness
-    this._createNewSector(unqiueIdentifier);
-
-    // we add the active sector to the sectors array to be able to revert these steps later on
-    this._setActiveSector(unqiueIdentifier);
-
-    // we redirect the global references to the new sector's references. this._sector() now returns unqiueIdentifier
-    this._switchToSector(this._sector());
-
-    // finally we add the node we removed from our previous active sector to the new active sector
-    this.nodes[node.id] = node;
-  };
-
-
-  /**
-   * We close the sector that is currently open and revert back to the one before.
-   * If the active sector is the "default" sector, nothing happens.
-   *
-   * @private
-   */
-  exports._collapseSector = function() {
-    // the currently active sector
-    var sector = this._sector();
-
-    // we cannot collapse the default sector
-    if (sector != "default") {
-      if ((this.nodeIndices.length == 1) ||
-       (this.sectors["active"][sector]["drawingNode"].width*this.scale < this.constants.clustering.screenSizeThreshold * this.frame.canvas.clientWidth) ||
-       (this.sectors["active"][sector]["drawingNode"].height*this.scale < this.constants.clustering.screenSizeThreshold * this.frame.canvas.clientHeight)) {
-        var previousSector = this._previousSector();
-
-        // we collapse the sector back to a single cluster
-        this._collapseThisToSingleCluster();
-
-        // we move the remaining nodes, edges and nodeIndices to the previous sector.
-        // This previous sector is the one we will reactivate
-        this._mergeThisWithFrozen(previousSector);
-
-        // the previously active (frozen) sector now has all the data from the currently active sector.
-        // we can now delete the active sector.
-        this._deleteActiveSector(sector);
-
-        // we activate the previously active (and currently frozen) sector.
-        this._activateSector(previousSector);
-
-        // we load the references from the newly active sector into the global references
-        this._switchToSector(previousSector);
-
-        // we forget the previously active sector because we reverted to the one before
-        this._forgetLastSector();
-
-        // finally, we update the node index list.
-        this._updateNodeIndexList();
-
-        // we refresh the list with calulation nodes and calculation node indices.
-        this._updateCalculationNodes();
-      }
-    }
-  };
-
-
-  /**
-   * This runs a function in all active sectors. This is used in _redraw() and the _initializeForceCalculation().
-   *
-   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
-   *                              |   we dont pass the function itself because then the "this" is the window object
-   *                              |   instead of the Network object
-   * @param {*} [argument]            |   Optional: arguments to pass to the runFunction
-   * @private
-   */
-  exports._doInAllActiveSectors = function(runFunction,argument) {
-    var returnValues = [];
-    if (argument === undefined) {
-      for (var sector in this.sectors["active"]) {
-        if (this.sectors["active"].hasOwnProperty(sector)) {
-          // switch the global references to those of this sector
-          this._switchToActiveSector(sector);
-          returnValues.push( this[runFunction]() );
-        }
-      }
-    }
-    else {
-      for (var sector in this.sectors["active"]) {
-        if (this.sectors["active"].hasOwnProperty(sector)) {
-          // switch the global references to those of this sector
-          this._switchToActiveSector(sector);
-          var args = Array.prototype.splice.call(arguments, 1);
-          if (args.length > 1) {
-            returnValues.push( this[runFunction](args[0],args[1]) );
-          }
-          else {
-            returnValues.push( this[runFunction](argument) );
-          }
-        }
-      }
-    }
-    // we revert the global references back to our active sector
-    this._loadLatestSector();
-    return returnValues;
-  };
-
-
-  /**
-   * This runs a function in all active sectors. This is used in _redraw() and the _initializeForceCalculation().
-   *
-   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
-   *                              |   we dont pass the function itself because then the "this" is the window object
-   *                              |   instead of the Network object
-   * @param {*} [argument]        |   Optional: arguments to pass to the runFunction
-   * @private
-   */
-  exports._doInSupportSector = function(runFunction,argument) {
-    var returnValues = false;
-    if (argument === undefined) {
-      this._switchToSupportSector();
-      returnValues = this[runFunction]();
-    }
-    else {
-      this._switchToSupportSector();
-      var args = Array.prototype.splice.call(arguments, 1);
-      if (args.length > 1) {
-        returnValues = this[runFunction](args[0],args[1]);
-      }
-      else {
-        returnValues = this[runFunction](argument);
-      }
-    }
-    // we revert the global references back to our active sector
-    this._loadLatestSector();
-    return returnValues;
-  };
-
-
-  /**
-   * This runs a function in all frozen sectors. This is used in the _redraw().
-   *
-   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
-   *                              |   we don't pass the function itself because then the "this" is the window object
-   *                              |   instead of the Network object
-   * @param {*} [argument]            |   Optional: arguments to pass to the runFunction
-   * @private
-   */
-  exports._doInAllFrozenSectors = function(runFunction,argument) {
-    if (argument === undefined) {
-      for (var sector in this.sectors["frozen"]) {
-        if (this.sectors["frozen"].hasOwnProperty(sector)) {
-          // switch the global references to those of this sector
-          this._switchToFrozenSector(sector);
-          this[runFunction]();
-        }
-      }
-    }
-    else {
-      for (var sector in this.sectors["frozen"]) {
-        if (this.sectors["frozen"].hasOwnProperty(sector)) {
-          // switch the global references to those of this sector
-          this._switchToFrozenSector(sector);
-          var args = Array.prototype.splice.call(arguments, 1);
-          if (args.length > 1) {
-            this[runFunction](args[0],args[1]);
-          }
-          else {
-            this[runFunction](argument);
-          }
-        }
-      }
-    }
-    this._loadLatestSector();
-  };
-
-
-  /**
-   * This runs a function in all sectors. This is used in the _redraw().
-   *
-   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
-   *                              |   we don't pass the function itself because then the "this" is the window object
-   *                              |   instead of the Network object
-   * @param {*} [argument]        |   Optional: arguments to pass to the runFunction
-   * @private
-   */
-  exports._doInAllSectors = function(runFunction,argument) {
-    var args = Array.prototype.splice.call(arguments, 1);
-    if (argument === undefined) {
-      this._doInAllActiveSectors(runFunction);
-      this._doInAllFrozenSectors(runFunction);
-    }
-    else {
-      if (args.length > 1) {
-        this._doInAllActiveSectors(runFunction,args[0],args[1]);
-        this._doInAllFrozenSectors(runFunction,args[0],args[1]);
-      }
-      else {
-        this._doInAllActiveSectors(runFunction,argument);
-        this._doInAllFrozenSectors(runFunction,argument);
-      }
-    }
-  };
-
-
-  /**
-   * This clears the nodeIndices list. We cannot use this.nodeIndices = [] because we would break the link with the
-   * active sector. Thus we clear the nodeIndices in the active sector, then reconnect the this.nodeIndices to it.
-   *
-   * @private
-   */
-  exports._clearNodeIndexList = function() {
-    var sector = this._sector();
-    this.sectors["active"][sector]["nodeIndices"] = [];
-    this.nodeIndices = this.sectors["active"][sector]["nodeIndices"];
-  };
-
-
-  /**
-   * Draw the encompassing sector node
-   *
-   * @param ctx
-   * @param sectorType
-   * @private
-   */
-  exports._drawSectorNodes = function(ctx,sectorType) {
-    var minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9, node;
-    for (var sector in this.sectors[sectorType]) {
-      if (this.sectors[sectorType].hasOwnProperty(sector)) {
-        if (this.sectors[sectorType][sector]["drawingNode"] !== undefined) {
-
-          this._switchToSector(sector,sectorType);
-
-          minY = 1e9; maxY = -1e9; minX = 1e9; maxX = -1e9;
-          for (var nodeId in this.nodes) {
-            if (this.nodes.hasOwnProperty(nodeId)) {
-              node = this.nodes[nodeId];
-              node.resize(ctx);
-              if (minX > node.x - 0.5 * node.width) {minX = node.x - 0.5 * node.width;}
-              if (maxX < node.x + 0.5 * node.width) {maxX = node.x + 0.5 * node.width;}
-              if (minY > node.y - 0.5 * node.height) {minY = node.y - 0.5 * node.height;}
-              if (maxY < node.y + 0.5 * node.height) {maxY = node.y + 0.5 * node.height;}
-            }
-          }
-          node = this.sectors[sectorType][sector]["drawingNode"];
-          node.x = 0.5 * (maxX + minX);
-          node.y = 0.5 * (maxY + minY);
-          node.width = 2 * (node.x - minX);
-          node.height = 2 * (node.y - minY);
-          node.options.radius = Math.sqrt(Math.pow(0.5*node.width,2) + Math.pow(0.5*node.height,2));
-          node.setScale(this.scale);
-          node._drawCircle(ctx);
-        }
-      }
-    }
-  };
-
-  exports._drawAllSectorNodes = function(ctx) {
-    this._drawSectorNodes(ctx,"frozen");
-    this._drawSectorNodes(ctx,"active");
-    this._loadLatestSector();
-  };
-
-
-/***/ },
-/* 62 */
-/***/ function(module, exports, __webpack_require__) {
-
-  var util = __webpack_require__(1);
-  var Node = __webpack_require__(40);
-  var Edge = __webpack_require__(37);
-
-  /**
-   * clears the toolbar div element of children
-   *
-   * @private
-   */
-  exports._clearManipulatorBar = function() {
-    this._recursiveDOMDelete(this.manipulationDiv);
-    this.manipulationDOM = {};
-
-    this._manipulationReleaseOverload = function () {};
-    delete this.sectors['support']['nodes']['targetNode'];
-    delete this.sectors['support']['nodes']['targetViaNode'];
-    this.controlNodesActive = false;
-    this.freezeSimulation = false;
-  };
-
-  /**
-   * Manipulation UI temporarily overloads certain functions to extend or replace them. To be able to restore
-   * these functions to their original functionality, we saved them in this.cachedFunctions.
-   * This function restores these functions to their original function.
-   *
-   * @private
-   */
-  exports._restoreOverloadedFunctions = function() {
-    for (var functionName in this.cachedFunctions) {
-      if (this.cachedFunctions.hasOwnProperty(functionName)) {
-        this[functionName] = this.cachedFunctions[functionName];
-        delete this.cachedFunctions[functionName];
-      }
-    }
-  };
-
-  /**
-   * Enable or disable edit-mode.
-   *
-   * @private
-   */
-  exports._toggleEditMode = function() {
-    this.editMode = !this.editMode;
-    var toolbar = this.manipulationDiv;
-    var closeDiv = this.closeDiv;
-    var editModeDiv = this.editModeDiv;
-    if (this.editMode == true) {
-      toolbar.style.display="block";
-      closeDiv.style.display="block";
-      editModeDiv.style.display="none";
-      closeDiv.onclick = this._toggleEditMode.bind(this);
-    }
-    else {
-      toolbar.style.display="none";
-      closeDiv.style.display="none";
-      editModeDiv.style.display="block";
-      closeDiv.onclick = null;
-    }
-    this._createManipulatorBar()
-  };
-
-  /**
-   * main function, creates the main toolbar. Removes functions bound to the select event. Binds all the buttons of the toolbar.
-   *
-   * @private
-   */
-  exports._createManipulatorBar = function() {
-    // remove bound functions
-    if (this.boundFunction) {
-      this.off('select', this.boundFunction);
-    }
-
-    var locale = this.constants.locales[this.constants.locale];
-
-    if (this.edgeBeingEdited !== undefined) {
-      this.edgeBeingEdited._disableControlNodes();
-      this.edgeBeingEdited = undefined;
-      this.selectedControlNode = null;
-      this.controlNodesActive = false;
-      this._redraw();
-    }
-
-    // restore overloaded functions
-    this._restoreOverloadedFunctions();
-
-    // resume calculation
-    this.freezeSimulation = false;
-
-    // reset global variables
-    this.blockConnectingEdgeSelection = false;
-    this.forceAppendSelection = false;
-    this.manipulationDOM = {};
-
-    if (this.editMode == true) {
-      while (this.manipulationDiv.hasChildNodes()) {
-        this.manipulationDiv.removeChild(this.manipulationDiv.firstChild);
-      }
-
-      this.manipulationDOM['addNodeSpan'] = document.createElement('span');
-      this.manipulationDOM['addNodeSpan'].className = 'network-manipulationUI add';
-      this.manipulationDOM['addNodeLabelSpan'] = document.createElement('span');
-      this.manipulationDOM['addNodeLabelSpan'].className = 'network-manipulationLabel';
-      this.manipulationDOM['addNodeLabelSpan'].innerHTML = locale['addNode'];
-      this.manipulationDOM['addNodeSpan'].appendChild(this.manipulationDOM['addNodeLabelSpan']);
-
-      this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
-      this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
-
-      this.manipulationDOM['addEdgeSpan'] = document.createElement('span');
-      this.manipulationDOM['addEdgeSpan'].className = 'network-manipulationUI connect';
-      this.manipulationDOM['addEdgeLabelSpan'] = document.createElement('span');
-      this.manipulationDOM['addEdgeLabelSpan'].className = 'network-manipulationLabel';
-      this.manipulationDOM['addEdgeLabelSpan'].innerHTML = locale['addEdge'];
-      this.manipulationDOM['addEdgeSpan'].appendChild(this.manipulationDOM['addEdgeLabelSpan']);
-
-      this.manipulationDiv.appendChild(this.manipulationDOM['addNodeSpan']);
-      this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
-      this.manipulationDiv.appendChild(this.manipulationDOM['addEdgeSpan']);
-
-      if (this._getSelectedNodeCount() == 1 && this.triggerFunctions.edit) {
-        this.manipulationDOM['seperatorLineDiv2'] = document.createElement('div');
-        this.manipulationDOM['seperatorLineDiv2'].className = 'network-seperatorLine';
-
-        this.manipulationDOM['editNodeSpan'] = document.createElement('span');
-        this.manipulationDOM['editNodeSpan'].className = 'network-manipulationUI edit';
-        this.manipulationDOM['editNodeLabelSpan'] = document.createElement('span');
-        this.manipulationDOM['editNodeLabelSpan'].className = 'network-manipulationLabel';
-        this.manipulationDOM['editNodeLabelSpan'].innerHTML = locale['editNode'];
-        this.manipulationDOM['editNodeSpan'].appendChild(this.manipulationDOM['editNodeLabelSpan']);
-
-        this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv2']);
-        this.manipulationDiv.appendChild(this.manipulationDOM['editNodeSpan']);
-      }
-      else if (this._getSelectedEdgeCount() == 1 && this._getSelectedNodeCount() == 0) {
-        this.manipulationDOM['seperatorLineDiv3'] = document.createElement('div');
-        this.manipulationDOM['seperatorLineDiv3'].className = 'network-seperatorLine';
-
-        this.manipulationDOM['editEdgeSpan'] = document.createElement('span');
-        this.manipulationDOM['editEdgeSpan'].className = 'network-manipulationUI edit';
-        this.manipulationDOM['editEdgeLabelSpan'] = document.createElement('span');
-        this.manipulationDOM['editEdgeLabelSpan'].className = 'network-manipulationLabel';
-        this.manipulationDOM['editEdgeLabelSpan'].innerHTML = locale['editEdge'];
-        this.manipulationDOM['editEdgeSpan'].appendChild(this.manipulationDOM['editEdgeLabelSpan']);
-
-        this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv3']);
-        this.manipulationDiv.appendChild(this.manipulationDOM['editEdgeSpan']);
-      }
-      if (this._selectionIsEmpty() == false) {
-        this.manipulationDOM['seperatorLineDiv4'] = document.createElement('div');
-        this.manipulationDOM['seperatorLineDiv4'].className = 'network-seperatorLine';
-
-        this.manipulationDOM['deleteSpan'] = document.createElement('span');
-        this.manipulationDOM['deleteSpan'].className = 'network-manipulationUI delete';
-        this.manipulationDOM['deleteLabelSpan'] = document.createElement('span');
-        this.manipulationDOM['deleteLabelSpan'].className = 'network-manipulationLabel';
-        this.manipulationDOM['deleteLabelSpan'].innerHTML = locale['del'];
-        this.manipulationDOM['deleteSpan'].appendChild(this.manipulationDOM['deleteLabelSpan']);
-
-        this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv4']);
-        this.manipulationDiv.appendChild(this.manipulationDOM['deleteSpan']);
-      }
-
-
-      // bind the icons
-      this.manipulationDOM['addNodeSpan'].onclick = this._createAddNodeToolbar.bind(this);
-      this.manipulationDOM['addEdgeSpan'].onclick = this._createAddEdgeToolbar.bind(this);
-      if (this._getSelectedNodeCount() == 1 && this.triggerFunctions.edit) {
-        this.manipulationDOM['editNodeSpan'].onclick = this._editNode.bind(this);
-      }
-      else if (this._getSelectedEdgeCount() == 1 && this._getSelectedNodeCount() == 0) {
-        this.manipulationDOM['editEdgeSpan'].onclick = this._createEditEdgeToolbar.bind(this);
-      }
-      if (this._selectionIsEmpty() == false) {
-        this.manipulationDOM['deleteSpan'].onclick = this._deleteSelected.bind(this);
-      }
-      this.closeDiv.onclick = this._toggleEditMode.bind(this);
-
-      var me = this;
-      this.boundFunction = me._createManipulatorBar;
-      this.on('select', this.boundFunction);
-    }
-    else {
-      while (this.editModeDiv.hasChildNodes()) {
-        this.editModeDiv.removeChild(this.editModeDiv.firstChild);
-      }
-
-      this.manipulationDOM['editModeSpan'] = document.createElement('span');
-      this.manipulationDOM['editModeSpan'].className = 'network-manipulationUI edit editmode';
-      this.manipulationDOM['editModeLabelSpan'] = document.createElement('span');
-      this.manipulationDOM['editModeLabelSpan'].className = 'network-manipulationLabel';
-      this.manipulationDOM['editModeLabelSpan'].innerHTML = locale['edit'];
-      this.manipulationDOM['editModeSpan'].appendChild(this.manipulationDOM['editModeLabelSpan']);
-
-      this.editModeDiv.appendChild(this.manipulationDOM['editModeSpan']);
-
-      this.manipulationDOM['editModeSpan'].onclick = this._toggleEditMode.bind(this);
-    }
-  };
-
-
-
-  /**
-   * Create the toolbar for adding Nodes
-   *
-   * @private
-   */
-  exports._createAddNodeToolbar = function() {
-    // clear the toolbar
-    this._clearManipulatorBar();
-    if (this.boundFunction) {
-      this.off('select', this.boundFunction);
-    }
-
-    var locale = this.constants.locales[this.constants.locale];
-
-    this.manipulationDOM = {};
-    this.manipulationDOM['backSpan'] = document.createElement('span');
-    this.manipulationDOM['backSpan'].className = 'network-manipulationUI back';
-    this.manipulationDOM['backLabelSpan'] = document.createElement('span');
-    this.manipulationDOM['backLabelSpan'].className = 'network-manipulationLabel';
-    this.manipulationDOM['backLabelSpan'].innerHTML = locale['back'];
-    this.manipulationDOM['backSpan'].appendChild(this.manipulationDOM['backLabelSpan']);
-
-    this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
-    this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
-
-    this.manipulationDOM['descriptionSpan'] = document.createElement('span');
-    this.manipulationDOM['descriptionSpan'].className = 'network-manipulationUI none';
-    this.manipulationDOM['descriptionLabelSpan'] = document.createElement('span');
-    this.manipulationDOM['descriptionLabelSpan'].className = 'network-manipulationLabel';
-    this.manipulationDOM['descriptionLabelSpan'].innerHTML = locale['addDescription'];
-    this.manipulationDOM['descriptionSpan'].appendChild(this.manipulationDOM['descriptionLabelSpan']);
-
-    this.manipulationDiv.appendChild(this.manipulationDOM['backSpan']);
-    this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
-    this.manipulationDiv.appendChild(this.manipulationDOM['descriptionSpan']);
-
-    // bind the icon
-    this.manipulationDOM['backSpan'].onclick = this._createManipulatorBar.bind(this);
-
-    // we use the boundFunction so we can reference it when we unbind it from the "select" event.
-    var me = this;
-    this.boundFunction = me._addNode;
-    this.on('select', this.boundFunction);
-  };
-
-
-  /**
-   * create the toolbar to connect nodes
-   *
-   * @private
-   */
-  exports._createAddEdgeToolbar = function() {
-    // clear the toolbar
-    this._clearManipulatorBar();
-    this._unselectAll(true);
-    this.freezeSimulation = true;
-
-    if (this.boundFunction) {
-      this.off('select', this.boundFunction);
-    }
-
-    var locale = this.constants.locales[this.constants.locale];
-
-    this._unselectAll();
-    this.forceAppendSelection = false;
-    this.blockConnectingEdgeSelection = true;
-
-    this.manipulationDOM = {};
-    this.manipulationDOM['backSpan'] = document.createElement('span');
-    this.manipulationDOM['backSpan'].className = 'network-manipulationUI back';
-    this.manipulationDOM['backLabelSpan'] = document.createElement('span');
-    this.manipulationDOM['backLabelSpan'].className = 'network-manipulationLabel';
-    this.manipulationDOM['backLabelSpan'].innerHTML = locale['back'];
-    this.manipulationDOM['backSpan'].appendChild(this.manipulationDOM['backLabelSpan']);
-
-    this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
-    this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
-
-    this.manipulationDOM['descriptionSpan'] = document.createElement('span');
-    this.manipulationDOM['descriptionSpan'].className = 'network-manipulationUI none';
-    this.manipulationDOM['descriptionLabelSpan'] = document.createElement('span');
-    this.manipulationDOM['descriptionLabelSpan'].className = 'network-manipulationLabel';
-    this.manipulationDOM['descriptionLabelSpan'].innerHTML = locale['edgeDescription'];
-    this.manipulationDOM['descriptionSpan'].appendChild(this.manipulationDOM['descriptionLabelSpan']);
-
-    this.manipulationDiv.appendChild(this.manipulationDOM['backSpan']);
-    this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
-    this.manipulationDiv.appendChild(this.manipulationDOM['descriptionSpan']);
-
-    // bind the icon
-    this.manipulationDOM['backSpan'].onclick = this._createManipulatorBar.bind(this);
-
-    // we use the boundFunction so we can reference it when we unbind it from the "select" event.
-    var me = this;
-    this.boundFunction = me._handleConnect;
-    this.on('select', this.boundFunction);
-
-    // temporarily overload functions
-    this.cachedFunctions["_handleTouch"] = this._handleTouch;
-    this.cachedFunctions["_manipulationReleaseOverload"] = this._manipulationReleaseOverload;
-    this.cachedFunctions["_handleDragStart"] = this._handleDragStart;
-    this.cachedFunctions["_handleDragEnd"] = this._handleDragEnd;
-    this._handleTouch = this._handleConnect;
-    this._manipulationReleaseOverload = function () {};
-    this._handleDragStart = function () {};
-    this._handleDragEnd = this._finishConnect;
-
-    // redraw to show the unselect
-    this._redraw();
-  };
-
-  /**
-   * create the toolbar to edit edges
-   *
-   * @private
-   */
-  exports._createEditEdgeToolbar = function() {
-    // clear the toolbar
-    this._clearManipulatorBar();
-    this.controlNodesActive = true;
-
-    if (this.boundFunction) {
-      this.off('select', this.boundFunction);
-    }
-
-    this.edgeBeingEdited = this._getSelectedEdge();
-    this.edgeBeingEdited._enableControlNodes();
-
-    var locale = this.constants.locales[this.constants.locale];
-
-    this.manipulationDOM = {};
-    this.manipulationDOM['backSpan'] = document.createElement('span');
-    this.manipulationDOM['backSpan'].className = 'network-manipulationUI back';
-    this.manipulationDOM['backLabelSpan'] = document.createElement('span');
-    this.manipulationDOM['backLabelSpan'].className = 'network-manipulationLabel';
-    this.manipulationDOM['backLabelSpan'].innerHTML = locale['back'];
-    this.manipulationDOM['backSpan'].appendChild(this.manipulationDOM['backLabelSpan']);
-
-    this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
-    this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
-
-    this.manipulationDOM['descriptionSpan'] = document.createElement('span');
-    this.manipulationDOM['descriptionSpan'].className = 'network-manipulationUI none';
-    this.manipulationDOM['descriptionLabelSpan'] = document.createElement('span');
-    this.manipulationDOM['descriptionLabelSpan'].className = 'network-manipulationLabel';
-    this.manipulationDOM['descriptionLabelSpan'].innerHTML = locale['editEdgeDescription'];
-    this.manipulationDOM['descriptionSpan'].appendChild(this.manipulationDOM['descriptionLabelSpan']);
-
-    this.manipulationDiv.appendChild(this.manipulationDOM['backSpan']);
-    this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
-    this.manipulationDiv.appendChild(this.manipulationDOM['descriptionSpan']);
-
-    // bind the icon
-    this.manipulationDOM['backSpan'].onclick = this._createManipulatorBar.bind(this);
-
-    // temporarily overload functions
-    this.cachedFunctions["_handleTouch"]      = this._handleTouch;
-    this.cachedFunctions["_manipulationReleaseOverload"]  = this._manipulationReleaseOverload;
-    this.cachedFunctions["_handleTap"]        = this._handleTap;
-    this.cachedFunctions["_handleDragStart"]  = this._handleDragStart;
-    this.cachedFunctions["_handleOnDrag"]     = this._handleOnDrag;
-    this._handleTouch     = this._selectControlNode;
-    this._handleTap       = function () {};
-    this._handleOnDrag    = this._controlNodeDrag;
-    this._handleDragStart = function () {}
-    this._manipulationReleaseOverload = this._releaseControlNode;
-
-    // redraw to show the unselect
-    this._redraw();
-  };
-
-
-  /**
-   * the function bound to the selection event. It checks if you want to connect a cluster and changes the description
-   * to walk the user through the process.
-   *
-   * @private
-   */
-  exports._selectControlNode = function(pointer) {
-    this.edgeBeingEdited.controlNodes.from.unselect();
-    this.edgeBeingEdited.controlNodes.to.unselect();
-    this.selectedControlNode = this.edgeBeingEdited._getSelectedControlNode(this._XconvertDOMtoCanvas(pointer.x),this._YconvertDOMtoCanvas(pointer.y));
-    if (this.selectedControlNode !== null) {
-      this.selectedControlNode.select();
-      this.freezeSimulation = true;
-    }
-    this._redraw();
-  };
-
-
-  /**
-   * the function bound to the selection event. It checks if you want to connect a cluster and changes the description
-   * to walk the user through the process.
-   *
-   * @private
-   */
-  exports._controlNodeDrag = function(event) {
-    var pointer = this._getPointer(event.gesture.center);
-    if (this.selectedControlNode !== null && this.selectedControlNode !== undefined) {
-      this.selectedControlNode.x = this._XconvertDOMtoCanvas(pointer.x);
-      this.selectedControlNode.y = this._YconvertDOMtoCanvas(pointer.y);
-    }
-    this._redraw();
-  };
-
-
-  /**
-   *
-   * @param pointer
-   * @private
-   */
-  exports._releaseControlNode = function(pointer) {
-    var newNode = this._getNodeAt(pointer);
-    if (newNode !== null) {
-      if (this.edgeBeingEdited.controlNodes.from.selected == true) {
-        this.edgeBeingEdited._restoreControlNodes();
-        this._editEdge(newNode.id, this.edgeBeingEdited.to.id);
-        this.edgeBeingEdited.controlNodes.from.unselect();
-      }
-      if (this.edgeBeingEdited.controlNodes.to.selected == true) {
-        this.edgeBeingEdited._restoreControlNodes();
-        this._editEdge(this.edgeBeingEdited.from.id, newNode.id);
-        this.edgeBeingEdited.controlNodes.to.unselect();
-      }
-    }
-    else {
-      this.edgeBeingEdited._restoreControlNodes();
-    }
-    this.freezeSimulation = false;
-    this._redraw();
-  };
-
-  /**
-   * the function bound to the selection event. It checks if you want to connect a cluster and changes the description
-   * to walk the user through the process.
-   *
-   * @private
-   */
-  exports._handleConnect = function(pointer) {
-    if (this._getSelectedNodeCount() == 0) {
-      var node = this._getNodeAt(pointer);
-
-      if (node != null) {
-        if (node.clusterSize > 1) {
-          alert(this.constants.locales[this.constants.locale]['createEdgeError'])
-        }
-        else {
-          this._selectObject(node,false);
-          var supportNodes = this.sectors['support']['nodes'];
-
-          // create a node the temporary line can look at
-          supportNodes['targetNode'] = new Node({id:'targetNode'},{},{},this.constants);
-          var targetNode = supportNodes['targetNode'];
-          targetNode.x = node.x;
-          targetNode.y = node.y;
-
-          // create a temporary edge
-          this.edges['connectionEdge'] = new Edge({id:"connectionEdge",from:node.id,to:targetNode.id}, this, this.constants);
-          var connectionEdge = this.edges['connectionEdge'];
-          connectionEdge.from = node;
-          connectionEdge.connected = true;
-          connectionEdge.options.smoothCurves = {enabled: true,
-              dynamic: false,
-              type: "continuous",
-              roundness: 0.5
-          };
-          connectionEdge.selected = true;
-          connectionEdge.to = targetNode;
-
-          this.cachedFunctions["_handleOnDrag"] = this._handleOnDrag;
-          this._handleOnDrag = function(event) {
-            var pointer = this._getPointer(event.gesture.center);
-            var connectionEdge = this.edges['connectionEdge'];
-            connectionEdge.to.x = this._XconvertDOMtoCanvas(pointer.x);
-            connectionEdge.to.y = this._YconvertDOMtoCanvas(pointer.y);
-          };
-
-          this.moving = true;
-          this.start();
-        }
-      }
-    }
-  };
-
-  exports._finishConnect = function(event) {
-    if (this._getSelectedNodeCount() == 1) {
-      var pointer = this._getPointer(event.gesture.center);
-      // restore the drag function
-      this._handleOnDrag = this.cachedFunctions["_handleOnDrag"];
-      delete this.cachedFunctions["_handleOnDrag"];
-
-      // remember the edge id
-      var connectFromId = this.edges['connectionEdge'].fromId;
-
-      // remove the temporary nodes and edge
-      delete this.edges['connectionEdge'];
-      delete this.sectors['support']['nodes']['targetNode'];
-      delete this.sectors['support']['nodes']['targetViaNode'];
-
-      var node = this._getNodeAt(pointer);
-      if (node != null) {
-        if (node.clusterSize > 1) {
-          alert(this.constants.locales[this.constants.locale]["createEdgeError"])
-        }
-        else {
-          this._createEdge(connectFromId,node.id);
-          this._createManipulatorBar();
-        }
-      }
-      this._unselectAll();
-    }
-  };
-
-
-  /**
-   * Adds a node on the specified location
-   */
-  exports._addNode = function() {
-    if (this._selectionIsEmpty() && this.editMode == true) {
-      var positionObject = this._pointerToPositionObject(this.pointerPosition);
-      var defaultData = {id:util.randomUUID(),x:positionObject.left,y:positionObject.top,label:"new",allowedToMoveX:true,allowedToMoveY:true};
-      if (this.triggerFunctions.add) {
-        if (this.triggerFunctions.add.length == 2) {
-          var me = this;
-          this.triggerFunctions.add(defaultData, function(finalizedData) {
-            me.nodesData.add(finalizedData);
-            me._createManipulatorBar();
-            me.moving = true;
-            me.start();
-          });
-        }
-        else {
-          throw new Error('The function for add does not support two arguments (data,callback)');
-          this._createManipulatorBar();
-          this.moving = true;
-          this.start();
-        }
-      }
-      else {
-        this.nodesData.add(defaultData);
-        this._createManipulatorBar();
-        this.moving = true;
-        this.start();
-      }
-    }
-  };
-
-
-  /**
-   * connect two nodes with a new edge.
-   *
-   * @private
-   */
-  exports._createEdge = function(sourceNodeId,targetNodeId) {
-    if (this.editMode == true) {
-      var defaultData = {from:sourceNodeId, to:targetNodeId};
-      if (this.triggerFunctions.connect) {
-        if (this.triggerFunctions.connect.length == 2) {
-          var me = this;
-          this.triggerFunctions.connect(defaultData, function(finalizedData) {
-            me.edgesData.add(finalizedData);
-            me.moving = true;
-            me.start();
-          });
-        }
-        else {
-          throw new Error('The function for connect does not support two arguments (data,callback)');
-          this.moving = true;
-          this.start();
-        }
-      }
-      else {
-        this.edgesData.add(defaultData);
-        this.moving = true;
-        this.start();
-      }
-    }
-  };
-
-  /**
-   * connect two nodes with a new edge.
-   *
-   * @private
-   */
-  exports._editEdge = function(sourceNodeId,targetNodeId) {
-    if (this.editMode == true) {
-      var defaultData = {id: this.edgeBeingEdited.id, from:sourceNodeId, to:targetNodeId};
-      if (this.triggerFunctions.editEdge) {
-        if (this.triggerFunctions.editEdge.length == 2) {
-          var me = this;
-          this.triggerFunctions.editEdge(defaultData, function(finalizedData) {
-            me.edgesData.update(finalizedData);
-            me.moving = true;
-            me.start();
-          });
-        }
-        else {
-          throw new Error('The function for edit does not support two arguments (data, callback)');
-          this.moving = true;
-          this.start();
-        }
-      }
-      else {
-        this.edgesData.update(defaultData);
-        this.moving = true;
-        this.start();
-      }
-    }
-  };
-
-  /**
-   * Create the toolbar to edit the selected node. The label and the color can be changed. Other colors are derived from the chosen color.
-   *
-   * @private
-   */
-  exports._editNode = function() {
-    if (this.triggerFunctions.edit && this.editMode == true) {
-      var node = this._getSelectedNode();
-      var data = {id:node.id,
-        label: node.label,
-        group: node.options.group,
-        shape: node.options.shape,
-        color: {
-          background:node.options.color.background,
-          border:node.options.color.border,
-          highlight: {
-            background:node.options.color.highlight.background,
-            border:node.options.color.highlight.border
-          }
-        }};
-      if (this.triggerFunctions.edit.length == 2) {
-        var me = this;
-        this.triggerFunctions.edit(data, function (finalizedData) {
-          me.nodesData.update(finalizedData);
-          me._createManipulatorBar();
-          me.moving = true;
-          me.start();
-        });
-      }
-      else {
-        throw new Error('The function for edit does not support two arguments (data, callback)');
-      }
-    }
-    else {
-      throw new Error('No edit function has been bound to this button');
-    }
-  };
-
-
-
-
-  /**
-   * delete everything in the selection
-   *
-   * @private
-   */
-  exports._deleteSelected = function() {
-    if (!this._selectionIsEmpty() && this.editMode == true) {
-      if (!this._clusterInSelection()) {
-        var selectedNodes = this.getSelectedNodes();
-        var selectedEdges = this.getSelectedEdges();
-        if (this.triggerFunctions.del) {
-          var me = this;
-          var data = {nodes: selectedNodes, edges: selectedEdges};
-          if (this.triggerFunctions.del.length == 2) {
-            this.triggerFunctions.del(data, function (finalizedData) {
-              me.edgesData.remove(finalizedData.edges);
-              me.nodesData.remove(finalizedData.nodes);
-              me._unselectAll();
-              me.moving = true;
-              me.start();
-            });
-          }
-          else {
-            throw new Error('The function for delete does not support two arguments (data, callback)')
-          }
-        }
-        else {
-          this.edgesData.remove(selectedEdges);
-          this.nodesData.remove(selectedNodes);
-          this._unselectAll();
-          this.moving = true;
-          this.start();
-        }
-      }
-      else {
-        alert(this.constants.locales[this.constants.locale]["deleteClusterError"]);
-      }
-    }
-  };
-
-
-/***/ },
-/* 63 */
 /***/ function(module, exports, __webpack_require__) {
 
   /**
@@ -32687,592 +31431,566 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 64 */
-/***/ function(module, exports, __webpack_require__) {
-
-  exports._resetLevels = function() {
-    for (var nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        var node = this.nodes[nodeId];
-        if (node.preassignedLevel == false) {
-          node.level = -1;
-          node.hierarchyEnumerated = false;
-        }
-      }
-    }
-  };
-
-  /**
-   * This is the main function to layout the nodes in a hierarchical way.
-   * It checks if the node details are supplied correctly
-   *
-   * @private
-   */
-  exports._setupHierarchicalLayout = function() {
-    if (this.constants.hierarchicalLayout.enabled == true && this.nodeIndices.length > 0) {
-      // get the size of the largest hubs and check if the user has defined a level for a node.
-      var hubsize = 0;
-      var node, nodeId;
-      var definedLevel = false;
-      var undefinedLevel = false;
-
-      for (nodeId in this.nodes) {
-        if (this.nodes.hasOwnProperty(nodeId)) {
-          node = this.nodes[nodeId];
-          if (node.level != -1) {
-            definedLevel = true;
-          }
-          else {
-            undefinedLevel = true;
-          }
-          if (hubsize < node.edges.length) {
-            hubsize = node.edges.length;
-          }
-        }
-      }
-
-      // if the user defined some levels but not all, alert and run without hierarchical layout
-      if (undefinedLevel == true && definedLevel == true) {
-        throw new Error("To use the hierarchical layout, nodes require either no predefined levels or levels have to be defined for all nodes.");
-        this.zoomExtent(undefined,true,this.constants.clustering.enabled);
-        if (!this.constants.clustering.enabled) {
-          this.start();
-        }
-      }
-      else {
-        // setup the system to use hierarchical method.
-        this._changeConstants();
-
-        // define levels if undefined by the users. Based on hubsize
-        if (undefinedLevel == true) {
-          if (this.constants.hierarchicalLayout.layout == "hubsize") {
-            this._determineLevels(hubsize);
-          }
-          else {
-            this._determineLevelsDirected(false);
-          }
-
-        }
-        // check the distribution of the nodes per level.
-        var distribution = this._getDistribution();
-
-        // place the nodes on the canvas. This also stablilizes the system.
-        this._placeNodesByHierarchy(distribution);
-
-        // start the simulation.
-        this.start();
-      }
-    }
-  };
-
-
-  /**
-   * This function places the nodes on the canvas based on the hierarchial distribution.
-   *
-   * @param {Object} distribution | obtained by the function this._getDistribution()
-   * @private
-   */
-  exports._placeNodesByHierarchy = function(distribution) {
-    var nodeId, node;
-
-    // start placing all the level 0 nodes first. Then recursively position their branches.
-    for (var level in distribution) {
-      if (distribution.hasOwnProperty(level)) {
-
-        for (nodeId in distribution[level].nodes) {
-          if (distribution[level].nodes.hasOwnProperty(nodeId)) {
-            node = distribution[level].nodes[nodeId];
-            if (this.constants.hierarchicalLayout.direction == "UD" || this.constants.hierarchicalLayout.direction == "DU") {
-              if (node.xFixed) {
-                node.x = distribution[level].minPos;
-                node.xFixed = false;
-
-                distribution[level].minPos += distribution[level].nodeSpacing;
-              }
-            }
-            else {
-              if (node.yFixed) {
-                node.y = distribution[level].minPos;
-                node.yFixed = false;
-
-                distribution[level].minPos += distribution[level].nodeSpacing;
-              }
-            }
-            this._placeBranchNodes(node.edges,node.id,distribution,node.level);
-          }
-        }
-      }
-    }
-
-    // stabilize the system after positioning. This function calls zoomExtent.
-    this._stabilize();
-  };
-
-
-  /**
-   * This function get the distribution of levels based on hubsize
-   *
-   * @returns {Object}
-   * @private
-   */
-  exports._getDistribution = function() {
-    var distribution = {};
-    var nodeId, node, level;
-
-    // we fix Y because the hierarchy is vertical, we fix X so we do not give a node an x position for a second time.
-    // the fix of X is removed after the x value has been set.
-    for (nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        node = this.nodes[nodeId];
-        node.xFixed = true;
-        node.yFixed = true;
-        if (this.constants.hierarchicalLayout.direction == "UD" || this.constants.hierarchicalLayout.direction == "DU") {
-          node.y = this.constants.hierarchicalLayout.levelSeparation*node.level;
-        }
-        else {
-          node.x = this.constants.hierarchicalLayout.levelSeparation*node.level;
-        }
-        if (distribution[node.level] === undefined) {
-          distribution[node.level] = {amount: 0, nodes: {}, minPos:0, nodeSpacing:0};
-        }
-        distribution[node.level].amount += 1;
-        distribution[node.level].nodes[nodeId] = node;
-      }
-    }
-
-    // determine the largest amount of nodes of all levels
-    var maxCount = 0;
-    for (level in distribution) {
-      if (distribution.hasOwnProperty(level)) {
-        if (maxCount < distribution[level].amount) {
-          maxCount = distribution[level].amount;
-        }
-      }
-    }
-
-    // set the initial position and spacing of each nodes accordingly
-    for (level in distribution) {
-      if (distribution.hasOwnProperty(level)) {
-        distribution[level].nodeSpacing = (maxCount + 1) * this.constants.hierarchicalLayout.nodeSpacing;
-        distribution[level].nodeSpacing /= (distribution[level].amount + 1);
-        distribution[level].minPos = distribution[level].nodeSpacing - (0.5 * (distribution[level].amount + 1) * distribution[level].nodeSpacing);
-      }
-    }
-
-    return distribution;
-  };
-
-
-  /**
-   * this function allocates nodes in levels based on the recursive branching from the largest hubs.
-   *
-   * @param hubsize
-   * @private
-   */
-  exports._determineLevels = function(hubsize) {
-    var nodeId, node;
-
-    // determine hubs
-    for (nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        node = this.nodes[nodeId];
-        if (node.edges.length == hubsize) {
-          node.level = 0;
-        }
-      }
-    }
-
-    // branch from hubs
-    for (nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        node = this.nodes[nodeId];
-        if (node.level == 0) {
-          this._setLevel(1,node.edges,node.id);
-        }
-      }
-    }
-  };
-
-
-
-  /**
-   * this function allocates nodes in levels based on the direction of the edges
-   *
-   * @param hubsize
-   * @private
-   */
-  exports._determineLevelsDirected = function() {
-    var nodeId, node, firstNode;
-    var minLevel = 10000;
-
-    // set first node to source
-    firstNode = this.nodes[this.nodeIndices[0]];
-    firstNode.level = minLevel;
-    this._setLevelDirected(minLevel,firstNode.edges,firstNode.id);
-
-    // get the minimum level
-    for (nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        node = this.nodes[nodeId];
-        minLevel = node.level < minLevel ? node.level : minLevel;
-      }
-    }
-
-    // subtract the minimum from the set so we have a range starting from 0
-    for (nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        node = this.nodes[nodeId];
-        node.level -= minLevel;
-      }
-    }
-  };
-
-
-  /**
-   * Since hierarchical layout does not support:
-   *    - smooth curves (based on the physics),
-   *    - clustering (based on dynamic node counts)
-   *
-   * We disable both features so there will be no problems.
-   *
-   * @private
-   */
-  exports._changeConstants = function() {
-    this.constants.clustering.enabled = false;
-    this.constants.physics.barnesHut.enabled = false;
-    this.constants.physics.hierarchicalRepulsion.enabled = true;
-    this._loadSelectedForceSolver();
-    if (this.constants.smoothCurves.enabled == true) {
-      this.constants.smoothCurves.dynamic = false;
-    }
-    this._configureSmoothCurves();
-
-    var config = this.constants.hierarchicalLayout;
-    config.levelSeparation = Math.abs(config.levelSeparation);
-    if (config.direction == "RL" || config.direction == "DU") {
-      config.levelSeparation *= -1;
-    }
-
-    if (config.direction == "RL" || config.direction == "LR") {
-      if (this.constants.smoothCurves.enabled == true) {
-        this.constants.smoothCurves.type = "vertical";
-      }
-    }
-    else {
-      if (this.constants.smoothCurves.enabled == true) {
-        this.constants.smoothCurves.type = "horizontal";
-      }
-    }
-  };
-
-
-  /**
-   * This is a recursively called function to enumerate the branches from the largest hubs and place the nodes
-   * on a X position that ensures there will be no overlap.
-   *
-   * @param edges
-   * @param parentId
-   * @param distribution
-   * @param parentLevel
-   * @private
-   */
-  exports._placeBranchNodes = function(edges, parentId, distribution, parentLevel) {
-    for (var i = 0; i < edges.length; i++) {
-      var childNode = null;
-      if (edges[i].toId == parentId) {
-        childNode = edges[i].from;
-      }
-      else {
-        childNode = edges[i].to;
-      }
-
-      // if a node is conneceted to another node on the same level (or higher (means lower level))!, this is not handled here.
-      var nodeMoved = false;
-      if (this.constants.hierarchicalLayout.direction == "UD" || this.constants.hierarchicalLayout.direction == "DU") {
-        if (childNode.xFixed && childNode.level > parentLevel) {
-          childNode.xFixed = false;
-          childNode.x = distribution[childNode.level].minPos;
-          nodeMoved = true;
-        }
-      }
-      else {
-        if (childNode.yFixed && childNode.level > parentLevel) {
-          childNode.yFixed = false;
-          childNode.y = distribution[childNode.level].minPos;
-          nodeMoved = true;
-        }
-      }
-
-      if (nodeMoved == true) {
-        distribution[childNode.level].minPos += distribution[childNode.level].nodeSpacing;
-        if (childNode.edges.length > 1) {
-          this._placeBranchNodes(childNode.edges,childNode.id,distribution,childNode.level);
-        }
-      }
-    }
-  };
-
-
-  /**
-   * this function is called recursively to enumerate the barnches of the largest hubs and give each node a level.
-   *
-   * @param level
-   * @param edges
-   * @param parentId
-   * @private
-   */
-  exports._setLevel = function(level, edges, parentId) {
-    for (var i = 0; i < edges.length; i++) {
-      var childNode = null;
-      if (edges[i].toId == parentId) {
-        childNode = edges[i].from;
-      }
-      else {
-        childNode = edges[i].to;
-      }
-      if (childNode.level == -1 || childNode.level > level) {
-        childNode.level = level;
-        if (childNode.edges.length > 1) {
-          this._setLevel(level+1, childNode.edges, childNode.id);
-        }
-      }
-    }
-  };
-
-
-  /**
-   * this function is called recursively to enumerate the branched of the first node and give each node a level based on edge direction
-   *
-   * @param level
-   * @param edges
-   * @param parentId
-   * @private
-   */
-  exports._setLevelDirected = function(level, edges, parentId) {
-    this.nodes[parentId].hierarchyEnumerated = true;
-    var childNode, direction;
-    for (var i = 0; i < edges.length; i++) {
-      direction = 1;
-      if (edges[i].toId == parentId) {
-        childNode = edges[i].from;
-        direction = -1;
-      }
-      else {
-        childNode = edges[i].to;
-      }
-      if (childNode.level == -1) {
-        childNode.level = level + direction;
-      }
-    }
-
-    for (var i = 0; i < edges.length; i++) {
-      if (edges[i].toId == parentId) {childNode = edges[i].from;}
-      else {childNode = edges[i].to;}
-
-      if (childNode.edges.length > 1 && childNode.hierarchyEnumerated === false) {
-        this._setLevelDirected(childNode.level, childNode.edges, childNode.id);
-      }
-    }
-  };
-
-
-  /**
-   * Unfix nodes
-   *
-   * @private
-   */
-  exports._restoreNodes = function() {
-    for (var nodeId in this.nodes) {
-      if (this.nodes.hasOwnProperty(nodeId)) {
-        this.nodes[nodeId].xFixed = false;
-        this.nodes[nodeId].yFixed = false;
-      }
-    }
-  };
-
-
-/***/ },
-/* 65 */
+/* 62 */
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Hammer = __webpack_require__(45);
+  var Node = __webpack_require__(40);
 
-  exports._cleanNavigation = function() {
-    // clean hammer bindings
-    if (this.navigationHammers.existing.length != 0) {
-      for (var i = 0; i < this.navigationHammers.existing.length; i++) {
-        this.navigationHammers.existing[i].dispose();
+  /**
+   * Creation of the SectorMixin var.
+   *
+   * This contains all the functions the Network object can use to employ the sector system.
+   * The sector system is always used by Network, though the benefits only apply to the use of clustering.
+   * If clustering is not used, there is no overhead except for a duplicate object with references to nodes and edges.
+   */
+
+  /**
+   * This function is only called by the setData function of the Network object.
+   * This loads the global references into the active sector. This initializes the sector.
+   *
+   * @private
+   */
+  exports._putDataInSector = function() {
+    this.sectors["active"][this._sector()].nodes = this.nodes;
+    this.sectors["active"][this._sector()].edges = this.edges;
+    this.sectors["active"][this._sector()].nodeIndices = this.nodeIndices;
+  };
+
+
+  /**
+   *  /**
+   * This function sets the global references to nodes, edges and nodeIndices back to
+   * those of the supplied (active) sector. If a type is defined, do the specific type
+   *
+   * @param {String} sectorId
+   * @param {String} [sectorType] | "active" or "frozen"
+   * @private
+   */
+  exports._switchToSector = function(sectorId, sectorType) {
+    if (sectorType === undefined || sectorType == "active") {
+      this._switchToActiveSector(sectorId);
+    }
+    else {
+      this._switchToFrozenSector(sectorId);
+    }
+  };
+
+
+  /**
+   * This function sets the global references to nodes, edges and nodeIndices back to
+   * those of the supplied active sector.
+   *
+   * @param sectorId
+   * @private
+   */
+  exports._switchToActiveSector = function(sectorId) {
+    this.nodeIndices = this.sectors["active"][sectorId]["nodeIndices"];
+    this.nodes       = this.sectors["active"][sectorId]["nodes"];
+    this.edges       = this.sectors["active"][sectorId]["edges"];
+  };
+
+
+  /**
+   * This function sets the global references to nodes, edges and nodeIndices back to
+   * those of the supplied active sector.
+   *
+   * @private
+   */
+  exports._switchToSupportSector = function() {
+    this.nodeIndices = this.sectors["support"]["nodeIndices"];
+    this.nodes       = this.sectors["support"]["nodes"];
+    this.edges       = this.sectors["support"]["edges"];
+  };
+
+
+  /**
+   * This function sets the global references to nodes, edges and nodeIndices back to
+   * those of the supplied frozen sector.
+   *
+   * @param sectorId
+   * @private
+   */
+  exports._switchToFrozenSector = function(sectorId) {
+    this.nodeIndices = this.sectors["frozen"][sectorId]["nodeIndices"];
+    this.nodes       = this.sectors["frozen"][sectorId]["nodes"];
+    this.edges       = this.sectors["frozen"][sectorId]["edges"];
+  };
+
+
+  /**
+   * This function sets the global references to nodes, edges and nodeIndices back to
+   * those of the currently active sector.
+   *
+   * @private
+   */
+  exports._loadLatestSector = function() {
+    this._switchToSector(this._sector());
+  };
+
+
+  /**
+   * This function returns the currently active sector Id
+   *
+   * @returns {String}
+   * @private
+   */
+  exports._sector = function() {
+    return this.activeSector[this.activeSector.length-1];
+  };
+
+
+  /**
+   * This function returns the previously active sector Id
+   *
+   * @returns {String}
+   * @private
+   */
+  exports._previousSector = function() {
+    if (this.activeSector.length > 1) {
+      return this.activeSector[this.activeSector.length-2];
+    }
+    else {
+      throw new TypeError('there are not enough sectors in the this.activeSector array.');
+    }
+  };
+
+
+  /**
+   * We add the active sector at the end of the this.activeSector array
+   * This ensures it is the currently active sector returned by _sector() and it reaches the top
+   * of the activeSector stack. When we reverse our steps we move from the end to the beginning of this stack.
+   *
+   * @param newId
+   * @private
+   */
+  exports._setActiveSector = function(newId) {
+    this.activeSector.push(newId);
+  };
+
+
+  /**
+   * We remove the currently active sector id from the active sector stack. This happens when
+   * we reactivate the previously active sector
+   *
+   * @private
+   */
+  exports._forgetLastSector = function() {
+    this.activeSector.pop();
+  };
+
+
+  /**
+   * This function creates a new active sector with the supplied newId. This newId
+   * is the expanding node id.
+   *
+   * @param {String} newId   | Id of the new active sector
+   * @private
+   */
+  exports._createNewSector = function(newId) {
+    // create the new sector
+    this.sectors["active"][newId] = {"nodes":{},
+                                     "edges":{},
+                                     "nodeIndices":[],
+                                     "formationScale": this.scale,
+                                     "drawingNode": undefined};
+
+    // create the new sector render node. This gives visual feedback that you are in a new sector.
+    this.sectors["active"][newId]['drawingNode'] = new Node(
+        {id:newId,
+          color: {
+            background: "#eaefef",
+            border: "495c5e"
+          }
+        },{},{},this.constants);
+    this.sectors["active"][newId]['drawingNode'].clusterSize = 2;
+  };
+
+
+  /**
+   * This function removes the currently active sector. This is called when we create a new
+   * active sector.
+   *
+   * @param {String} sectorId   | Id of the active sector that will be removed
+   * @private
+   */
+  exports._deleteActiveSector = function(sectorId) {
+    delete this.sectors["active"][sectorId];
+  };
+
+
+  /**
+   * This function removes the currently active sector. This is called when we reactivate
+   * the previously active sector.
+   *
+   * @param {String} sectorId   | Id of the active sector that will be removed
+   * @private
+   */
+  exports._deleteFrozenSector = function(sectorId) {
+    delete this.sectors["frozen"][sectorId];
+  };
+
+
+  /**
+   * Freezing an active sector means moving it from the "active" object to the "frozen" object.
+   * We copy the references, then delete the active entree.
+   *
+   * @param sectorId
+   * @private
+   */
+  exports._freezeSector = function(sectorId) {
+    // we move the set references from the active to the frozen stack.
+    this.sectors["frozen"][sectorId] = this.sectors["active"][sectorId];
+
+    // we have moved the sector data into the frozen set, we now remove it from the active set
+    this._deleteActiveSector(sectorId);
+  };
+
+
+  /**
+   * This is the reverse operation of _freezeSector. Activating means moving the sector from the "frozen"
+   * object to the "active" object.
+   *
+   * @param sectorId
+   * @private
+   */
+  exports._activateSector = function(sectorId) {
+    // we move the set references from the frozen to the active stack.
+    this.sectors["active"][sectorId] = this.sectors["frozen"][sectorId];
+
+    // we have moved the sector data into the active set, we now remove it from the frozen stack
+    this._deleteFrozenSector(sectorId);
+  };
+
+
+  /**
+   * This function merges the data from the currently active sector with a frozen sector. This is used
+   * in the process of reverting back to the previously active sector.
+   * The data that is placed in the frozen (the previously active) sector is the node that has been removed from it
+   * upon the creation of a new active sector.
+   *
+   * @param sectorId
+   * @private
+   */
+  exports._mergeThisWithFrozen = function(sectorId) {
+    // copy all nodes
+    for (var nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        this.sectors["frozen"][sectorId]["nodes"][nodeId] = this.nodes[nodeId];
       }
-      this.navigationHammers.existing = [];
     }
 
-    this._navigationReleaseOverload = function () {};
+    // copy all edges (if not fully clustered, else there are no edges)
+    for (var edgeId in this.edges) {
+      if (this.edges.hasOwnProperty(edgeId)) {
+        this.sectors["frozen"][sectorId]["edges"][edgeId] = this.edges[edgeId];
+      }
+    }
 
-    // clean up previous navigation items
-    if (this.navigationDivs && this.navigationDivs['wrapper'] && this.navigationDivs['wrapper'].parentNode) {
-      this.navigationDivs['wrapper'].parentNode.removeChild(this.navigationDivs['wrapper']);
+    // merge the nodeIndices
+    for (var i = 0; i < this.nodeIndices.length; i++) {
+      this.sectors["frozen"][sectorId]["nodeIndices"].push(this.nodeIndices[i]);
     }
   };
 
+
   /**
-   * Creation of the navigation controls nodes. They are drawn over the rest of the nodes and are not affected by scale and translation
-   * they have a triggerFunction which is called on click. If the position of the navigation controls is dependent
-   * on this.frame.canvas.clientWidth or this.frame.canvas.clientHeight, we flag horizontalAlignLeft and verticalAlignTop false.
-   * This means that the location will be corrected by the _relocateNavigation function on a size change of the canvas.
+   * This clusters the sector to one cluster. It was a single cluster before this process started so
+   * we revert to that state. The clusterToFit function with a maximum size of 1 node does this.
    *
    * @private
    */
-  exports._loadNavigationElements = function() {
-    this._cleanNavigation();
+  exports._collapseThisToSingleCluster = function() {
+    this.clusterToFit(1,false);
+  };
 
-    this.navigationDivs = {};
-    var navigationDivs = ['up','down','left','right','zoomIn','zoomOut','zoomExtends'];
-    var navigationDivActions = ['_moveUp','_moveDown','_moveLeft','_moveRight','_zoomIn','_zoomOut','_zoomExtent'];
 
-    this.navigationDivs['wrapper'] = document.createElement('div');
-    this.frame.appendChild(this.navigationDivs['wrapper']);
+  /**
+   * We create a new active sector from the node that we want to open.
+   *
+   * @param node
+   * @private
+   */
+  exports._addSector = function(node) {
+    // this is the currently active sector
+    var sector = this._sector();
 
-    for (var i = 0; i < navigationDivs.length; i++) {
-      this.navigationDivs[navigationDivs[i]] = document.createElement('div');
-      this.navigationDivs[navigationDivs[i]].className = 'network-navigation ' + navigationDivs[i];
-      this.navigationDivs['wrapper'].appendChild(this.navigationDivs[navigationDivs[i]]);
+  //    // this should allow me to select nodes from a frozen set.
+  //    if (this.sectors['active'][sector]["nodes"].hasOwnProperty(node.id)) {
+  //      console.log("the node is part of the active sector");
+  //    }
+  //    else {
+  //      console.log("I dont know what the fuck happened!!");
+  //    }
 
-      var hammer = Hammer(this.navigationDivs[navigationDivs[i]], {prevent_default: true});
-      hammer.on('touch', this[navigationDivActions[i]].bind(this));
-      this.navigationHammers._new.push(hammer);
+    // when we switch to a new sector, we remove the node that will be expanded from the current nodes list.
+    delete this.nodes[node.id];
+
+    var unqiueIdentifier = util.randomUUID();
+
+    // we fully freeze the currently active sector
+    this._freezeSector(sector);
+
+    // we create a new active sector. This sector has the Id of the node to ensure uniqueness
+    this._createNewSector(unqiueIdentifier);
+
+    // we add the active sector to the sectors array to be able to revert these steps later on
+    this._setActiveSector(unqiueIdentifier);
+
+    // we redirect the global references to the new sector's references. this._sector() now returns unqiueIdentifier
+    this._switchToSector(this._sector());
+
+    // finally we add the node we removed from our previous active sector to the new active sector
+    this.nodes[node.id] = node;
+  };
+
+
+  /**
+   * We close the sector that is currently open and revert back to the one before.
+   * If the active sector is the "default" sector, nothing happens.
+   *
+   * @private
+   */
+  exports._collapseSector = function() {
+    // the currently active sector
+    var sector = this._sector();
+
+    // we cannot collapse the default sector
+    if (sector != "default") {
+      if ((this.nodeIndices.length == 1) ||
+       (this.sectors["active"][sector]["drawingNode"].width*this.scale < this.constants.clustering.screenSizeThreshold * this.frame.canvas.clientWidth) ||
+       (this.sectors["active"][sector]["drawingNode"].height*this.scale < this.constants.clustering.screenSizeThreshold * this.frame.canvas.clientHeight)) {
+        var previousSector = this._previousSector();
+
+        // we collapse the sector back to a single cluster
+        this._collapseThisToSingleCluster();
+
+        // we move the remaining nodes, edges and nodeIndices to the previous sector.
+        // This previous sector is the one we will reactivate
+        this._mergeThisWithFrozen(previousSector);
+
+        // the previously active (frozen) sector now has all the data from the currently active sector.
+        // we can now delete the active sector.
+        this._deleteActiveSector(sector);
+
+        // we activate the previously active (and currently frozen) sector.
+        this._activateSector(previousSector);
+
+        // we load the references from the newly active sector into the global references
+        this._switchToSector(previousSector);
+
+        // we forget the previously active sector because we reverted to the one before
+        this._forgetLastSector();
+
+        // finally, we update the node index list.
+        this._updateNodeIndexList();
+
+        // we refresh the list with calulation nodes and calculation node indices.
+        this._updateCalculationNodes();
+      }
     }
-
-    this._navigationReleaseOverload = this._stopMovement;
-
-    this.navigationHammers.existing = this.navigationHammers._new;
   };
 
 
   /**
-   * this stops all movement induced by the navigation buttons
+   * This runs a function in all active sectors. This is used in _redraw() and the _initializeForceCalculation().
+   *
+   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
+   *                              |   we dont pass the function itself because then the "this" is the window object
+   *                              |   instead of the Network object
+   * @param {*} [argument]            |   Optional: arguments to pass to the runFunction
+   * @private
+   */
+  exports._doInAllActiveSectors = function(runFunction,argument) {
+    var returnValues = [];
+    if (argument === undefined) {
+      for (var sector in this.sectors["active"]) {
+        if (this.sectors["active"].hasOwnProperty(sector)) {
+          // switch the global references to those of this sector
+          this._switchToActiveSector(sector);
+          returnValues.push( this[runFunction]() );
+        }
+      }
+    }
+    else {
+      for (var sector in this.sectors["active"]) {
+        if (this.sectors["active"].hasOwnProperty(sector)) {
+          // switch the global references to those of this sector
+          this._switchToActiveSector(sector);
+          var args = Array.prototype.splice.call(arguments, 1);
+          if (args.length > 1) {
+            returnValues.push( this[runFunction](args[0],args[1]) );
+          }
+          else {
+            returnValues.push( this[runFunction](argument) );
+          }
+        }
+      }
+    }
+    // we revert the global references back to our active sector
+    this._loadLatestSector();
+    return returnValues;
+  };
+
+
+  /**
+   * This runs a function in all active sectors. This is used in _redraw() and the _initializeForceCalculation().
+   *
+   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
+   *                              |   we dont pass the function itself because then the "this" is the window object
+   *                              |   instead of the Network object
+   * @param {*} [argument]        |   Optional: arguments to pass to the runFunction
+   * @private
+   */
+  exports._doInSupportSector = function(runFunction,argument) {
+    var returnValues = false;
+    if (argument === undefined) {
+      this._switchToSupportSector();
+      returnValues = this[runFunction]();
+    }
+    else {
+      this._switchToSupportSector();
+      var args = Array.prototype.splice.call(arguments, 1);
+      if (args.length > 1) {
+        returnValues = this[runFunction](args[0],args[1]);
+      }
+      else {
+        returnValues = this[runFunction](argument);
+      }
+    }
+    // we revert the global references back to our active sector
+    this._loadLatestSector();
+    return returnValues;
+  };
+
+
+  /**
+   * This runs a function in all frozen sectors. This is used in the _redraw().
+   *
+   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
+   *                              |   we don't pass the function itself because then the "this" is the window object
+   *                              |   instead of the Network object
+   * @param {*} [argument]            |   Optional: arguments to pass to the runFunction
+   * @private
+   */
+  exports._doInAllFrozenSectors = function(runFunction,argument) {
+    if (argument === undefined) {
+      for (var sector in this.sectors["frozen"]) {
+        if (this.sectors["frozen"].hasOwnProperty(sector)) {
+          // switch the global references to those of this sector
+          this._switchToFrozenSector(sector);
+          this[runFunction]();
+        }
+      }
+    }
+    else {
+      for (var sector in this.sectors["frozen"]) {
+        if (this.sectors["frozen"].hasOwnProperty(sector)) {
+          // switch the global references to those of this sector
+          this._switchToFrozenSector(sector);
+          var args = Array.prototype.splice.call(arguments, 1);
+          if (args.length > 1) {
+            this[runFunction](args[0],args[1]);
+          }
+          else {
+            this[runFunction](argument);
+          }
+        }
+      }
+    }
+    this._loadLatestSector();
+  };
+
+
+  /**
+   * This runs a function in all sectors. This is used in the _redraw().
+   *
+   * @param {String} runFunction  |   This is the NAME of a function we want to call in all active sectors
+   *                              |   we don't pass the function itself because then the "this" is the window object
+   *                              |   instead of the Network object
+   * @param {*} [argument]        |   Optional: arguments to pass to the runFunction
+   * @private
+   */
+  exports._doInAllSectors = function(runFunction,argument) {
+    var args = Array.prototype.splice.call(arguments, 1);
+    if (argument === undefined) {
+      this._doInAllActiveSectors(runFunction);
+      this._doInAllFrozenSectors(runFunction);
+    }
+    else {
+      if (args.length > 1) {
+        this._doInAllActiveSectors(runFunction,args[0],args[1]);
+        this._doInAllFrozenSectors(runFunction,args[0],args[1]);
+      }
+      else {
+        this._doInAllActiveSectors(runFunction,argument);
+        this._doInAllFrozenSectors(runFunction,argument);
+      }
+    }
+  };
+
+
+  /**
+   * This clears the nodeIndices list. We cannot use this.nodeIndices = [] because we would break the link with the
+   * active sector. Thus we clear the nodeIndices in the active sector, then reconnect the this.nodeIndices to it.
    *
    * @private
    */
-  exports._zoomExtent = function(event) {
-    this.zoomExtent({duration:700});
-    event.stopPropagation();
+  exports._clearNodeIndexList = function() {
+    var sector = this._sector();
+    this.sectors["active"][sector]["nodeIndices"] = [];
+    this.nodeIndices = this.sectors["active"][sector]["nodeIndices"];
   };
 
+
   /**
-   * this stops all movement induced by the navigation buttons
+   * Draw the encompassing sector node
    *
+   * @param ctx
+   * @param sectorType
    * @private
    */
-  exports._stopMovement = function() {
-    this._xStopMoving();
-    this._yStopMoving();
-    this._stopZoom();
+  exports._drawSectorNodes = function(ctx,sectorType) {
+    var minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9, node;
+    for (var sector in this.sectors[sectorType]) {
+      if (this.sectors[sectorType].hasOwnProperty(sector)) {
+        if (this.sectors[sectorType][sector]["drawingNode"] !== undefined) {
+
+          this._switchToSector(sector,sectorType);
+
+          minY = 1e9; maxY = -1e9; minX = 1e9; maxX = -1e9;
+          for (var nodeId in this.nodes) {
+            if (this.nodes.hasOwnProperty(nodeId)) {
+              node = this.nodes[nodeId];
+              node.resize(ctx);
+              if (minX > node.x - 0.5 * node.width) {minX = node.x - 0.5 * node.width;}
+              if (maxX < node.x + 0.5 * node.width) {maxX = node.x + 0.5 * node.width;}
+              if (minY > node.y - 0.5 * node.height) {minY = node.y - 0.5 * node.height;}
+              if (maxY < node.y + 0.5 * node.height) {maxY = node.y + 0.5 * node.height;}
+            }
+          }
+          node = this.sectors[sectorType][sector]["drawingNode"];
+          node.x = 0.5 * (maxX + minX);
+          node.y = 0.5 * (maxY + minY);
+          node.width = 2 * (node.x - minX);
+          node.height = 2 * (node.y - minY);
+          node.options.radius = Math.sqrt(Math.pow(0.5*node.width,2) + Math.pow(0.5*node.height,2));
+          node.setScale(this.scale);
+          node._drawCircle(ctx);
+        }
+      }
+    }
   };
 
-
-  /**
-   * move the screen up
-   * By using the increments, instead of adding a fixed number to the translation, we keep fluent and
-   * instant movement. The onKeypress event triggers immediately, then pauses, then triggers frequently
-   * To avoid this behaviour, we do the translation in the start loop.
-   *
-   * @private
-   */
-  exports._moveUp = function(event) {
-    this.yIncrement = this.constants.keyboard.speed.y;
-    this.start(); // if there is no node movement, the calculation wont be done
-    event.preventDefault();
-  };
-
-
-  /**
-   * move the screen down
-   * @private
-   */
-  exports._moveDown = function(event) {
-    this.yIncrement = -this.constants.keyboard.speed.y;
-    this.start(); // if there is no node movement, the calculation wont be done
-    event.preventDefault();
-  };
-
-
-  /**
-   * move the screen left
-   * @private
-   */
-  exports._moveLeft = function(event) {
-    this.xIncrement = this.constants.keyboard.speed.x;
-    this.start(); // if there is no node movement, the calculation wont be done
-    event.preventDefault();
-  };
-
-
-  /**
-   * move the screen right
-   * @private
-   */
-  exports._moveRight = function(event) {
-    this.xIncrement = -this.constants.keyboard.speed.y;
-    this.start(); // if there is no node movement, the calculation wont be done
-    event.preventDefault();
-  };
-
-
-  /**
-   * Zoom in, using the same method as the movement.
-   * @private
-   */
-  exports._zoomIn = function(event) {
-    this.zoomIncrement = this.constants.keyboard.speed.zoom;
-    this.start(); // if there is no node movement, the calculation wont be done
-    event.preventDefault();
-  };
-
-
-  /**
-   * Zoom out
-   * @private
-   */
-  exports._zoomOut = function(event) {
-    this.zoomIncrement = -this.constants.keyboard.speed.zoom;
-    this.start(); // if there is no node movement, the calculation wont be done
-    event.preventDefault();
-  };
-
-
-  /**
-   * Stop zooming and unhighlight the zoom controls
-   * @private
-   */
-  exports._stopZoom = function(event) {
-    this.zoomIncrement = 0;
-    event && event.preventDefault();
-  };
-
-
-  /**
-   * Stop moving in the Y direction and unHighlight the up and down
-   * @private
-   */
-  exports._yStopMoving = function(event) {
-    this.yIncrement = 0;
-    event && event.preventDefault();
-  };
-
-
-  /**
-   * Stop moving in the X direction and unHighlight left and right.
-   * @private
-   */
-  exports._xStopMoving = function(event) {
-    this.xIncrement = 0;
-    event && event.preventDefault();
+  exports._drawAllSectorNodes = function(ctx) {
+    this._drawSectorNodes(ctx,"frozen");
+    this._drawSectorNodes(ctx,"active");
+    this._loadLatestSector();
   };
 
 
 /***/ },
-/* 66 */
+/* 63 */
 /***/ function(module, exports, __webpack_require__) {
 
   var Node = __webpack_require__(40);
@@ -33986,20 +32704,1289 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 67 */
+/* 64 */
 /***/ function(module, exports, __webpack_require__) {
 
-  function webpackContext(req) {
-  	throw new Error("Cannot find module '" + req + "'.");
-  }
-  webpackContext.keys = function() { return []; };
-  webpackContext.resolve = webpackContext;
-  module.exports = webpackContext;
-  webpackContext.id = 67;
+  var util = __webpack_require__(1);
+  var Node = __webpack_require__(40);
+  var Edge = __webpack_require__(37);
+
+  /**
+   * clears the toolbar div element of children
+   *
+   * @private
+   */
+  exports._clearManipulatorBar = function() {
+    this._recursiveDOMDelete(this.manipulationDiv);
+    this.manipulationDOM = {};
+
+    this._manipulationReleaseOverload = function () {};
+    delete this.sectors['support']['nodes']['targetNode'];
+    delete this.sectors['support']['nodes']['targetViaNode'];
+    this.controlNodesActive = false;
+    this.freezeSimulation = false;
+  };
+
+  /**
+   * Manipulation UI temporarily overloads certain functions to extend or replace them. To be able to restore
+   * these functions to their original functionality, we saved them in this.cachedFunctions.
+   * This function restores these functions to their original function.
+   *
+   * @private
+   */
+  exports._restoreOverloadedFunctions = function() {
+    for (var functionName in this.cachedFunctions) {
+      if (this.cachedFunctions.hasOwnProperty(functionName)) {
+        this[functionName] = this.cachedFunctions[functionName];
+        delete this.cachedFunctions[functionName];
+      }
+    }
+  };
+
+  /**
+   * Enable or disable edit-mode.
+   *
+   * @private
+   */
+  exports._toggleEditMode = function() {
+    this.editMode = !this.editMode;
+    var toolbar = this.manipulationDiv;
+    var closeDiv = this.closeDiv;
+    var editModeDiv = this.editModeDiv;
+    if (this.editMode == true) {
+      toolbar.style.display="block";
+      closeDiv.style.display="block";
+      editModeDiv.style.display="none";
+      closeDiv.onclick = this._toggleEditMode.bind(this);
+    }
+    else {
+      toolbar.style.display="none";
+      closeDiv.style.display="none";
+      editModeDiv.style.display="block";
+      closeDiv.onclick = null;
+    }
+    this._createManipulatorBar()
+  };
+
+  /**
+   * main function, creates the main toolbar. Removes functions bound to the select event. Binds all the buttons of the toolbar.
+   *
+   * @private
+   */
+  exports._createManipulatorBar = function() {
+    // remove bound functions
+    if (this.boundFunction) {
+      this.off('select', this.boundFunction);
+    }
+
+    var locale = this.constants.locales[this.constants.locale];
+
+    if (this.edgeBeingEdited !== undefined) {
+      this.edgeBeingEdited._disableControlNodes();
+      this.edgeBeingEdited = undefined;
+      this.selectedControlNode = null;
+      this.controlNodesActive = false;
+      this._redraw();
+    }
+
+    // restore overloaded functions
+    this._restoreOverloadedFunctions();
+
+    // resume calculation
+    this.freezeSimulation = false;
+
+    // reset global variables
+    this.blockConnectingEdgeSelection = false;
+    this.forceAppendSelection = false;
+    this.manipulationDOM = {};
+
+    if (this.editMode == true) {
+      while (this.manipulationDiv.hasChildNodes()) {
+        this.manipulationDiv.removeChild(this.manipulationDiv.firstChild);
+      }
+
+      this.manipulationDOM['addNodeSpan'] = document.createElement('span');
+      this.manipulationDOM['addNodeSpan'].className = 'network-manipulationUI add';
+      this.manipulationDOM['addNodeLabelSpan'] = document.createElement('span');
+      this.manipulationDOM['addNodeLabelSpan'].className = 'network-manipulationLabel';
+      this.manipulationDOM['addNodeLabelSpan'].innerHTML = locale['addNode'];
+      this.manipulationDOM['addNodeSpan'].appendChild(this.manipulationDOM['addNodeLabelSpan']);
+
+      this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
+      this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
+
+      this.manipulationDOM['addEdgeSpan'] = document.createElement('span');
+      this.manipulationDOM['addEdgeSpan'].className = 'network-manipulationUI connect';
+      this.manipulationDOM['addEdgeLabelSpan'] = document.createElement('span');
+      this.manipulationDOM['addEdgeLabelSpan'].className = 'network-manipulationLabel';
+      this.manipulationDOM['addEdgeLabelSpan'].innerHTML = locale['addEdge'];
+      this.manipulationDOM['addEdgeSpan'].appendChild(this.manipulationDOM['addEdgeLabelSpan']);
+
+      this.manipulationDiv.appendChild(this.manipulationDOM['addNodeSpan']);
+      this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
+      this.manipulationDiv.appendChild(this.manipulationDOM['addEdgeSpan']);
+
+      if (this._getSelectedNodeCount() == 1 && this.triggerFunctions.edit) {
+        this.manipulationDOM['seperatorLineDiv2'] = document.createElement('div');
+        this.manipulationDOM['seperatorLineDiv2'].className = 'network-seperatorLine';
+
+        this.manipulationDOM['editNodeSpan'] = document.createElement('span');
+        this.manipulationDOM['editNodeSpan'].className = 'network-manipulationUI edit';
+        this.manipulationDOM['editNodeLabelSpan'] = document.createElement('span');
+        this.manipulationDOM['editNodeLabelSpan'].className = 'network-manipulationLabel';
+        this.manipulationDOM['editNodeLabelSpan'].innerHTML = locale['editNode'];
+        this.manipulationDOM['editNodeSpan'].appendChild(this.manipulationDOM['editNodeLabelSpan']);
+
+        this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv2']);
+        this.manipulationDiv.appendChild(this.manipulationDOM['editNodeSpan']);
+      }
+      else if (this._getSelectedEdgeCount() == 1 && this._getSelectedNodeCount() == 0) {
+        this.manipulationDOM['seperatorLineDiv3'] = document.createElement('div');
+        this.manipulationDOM['seperatorLineDiv3'].className = 'network-seperatorLine';
+
+        this.manipulationDOM['editEdgeSpan'] = document.createElement('span');
+        this.manipulationDOM['editEdgeSpan'].className = 'network-manipulationUI edit';
+        this.manipulationDOM['editEdgeLabelSpan'] = document.createElement('span');
+        this.manipulationDOM['editEdgeLabelSpan'].className = 'network-manipulationLabel';
+        this.manipulationDOM['editEdgeLabelSpan'].innerHTML = locale['editEdge'];
+        this.manipulationDOM['editEdgeSpan'].appendChild(this.manipulationDOM['editEdgeLabelSpan']);
+
+        this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv3']);
+        this.manipulationDiv.appendChild(this.manipulationDOM['editEdgeSpan']);
+      }
+      if (this._selectionIsEmpty() == false) {
+        this.manipulationDOM['seperatorLineDiv4'] = document.createElement('div');
+        this.manipulationDOM['seperatorLineDiv4'].className = 'network-seperatorLine';
+
+        this.manipulationDOM['deleteSpan'] = document.createElement('span');
+        this.manipulationDOM['deleteSpan'].className = 'network-manipulationUI delete';
+        this.manipulationDOM['deleteLabelSpan'] = document.createElement('span');
+        this.manipulationDOM['deleteLabelSpan'].className = 'network-manipulationLabel';
+        this.manipulationDOM['deleteLabelSpan'].innerHTML = locale['del'];
+        this.manipulationDOM['deleteSpan'].appendChild(this.manipulationDOM['deleteLabelSpan']);
+
+        this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv4']);
+        this.manipulationDiv.appendChild(this.manipulationDOM['deleteSpan']);
+      }
+
+
+      // bind the icons
+      this.manipulationDOM['addNodeSpan'].onclick = this._createAddNodeToolbar.bind(this);
+      this.manipulationDOM['addEdgeSpan'].onclick = this._createAddEdgeToolbar.bind(this);
+      if (this._getSelectedNodeCount() == 1 && this.triggerFunctions.edit) {
+        this.manipulationDOM['editNodeSpan'].onclick = this._editNode.bind(this);
+      }
+      else if (this._getSelectedEdgeCount() == 1 && this._getSelectedNodeCount() == 0) {
+        this.manipulationDOM['editEdgeSpan'].onclick = this._createEditEdgeToolbar.bind(this);
+      }
+      if (this._selectionIsEmpty() == false) {
+        this.manipulationDOM['deleteSpan'].onclick = this._deleteSelected.bind(this);
+      }
+      this.closeDiv.onclick = this._toggleEditMode.bind(this);
+
+      var me = this;
+      this.boundFunction = me._createManipulatorBar;
+      this.on('select', this.boundFunction);
+    }
+    else {
+      while (this.editModeDiv.hasChildNodes()) {
+        this.editModeDiv.removeChild(this.editModeDiv.firstChild);
+      }
+
+      this.manipulationDOM['editModeSpan'] = document.createElement('span');
+      this.manipulationDOM['editModeSpan'].className = 'network-manipulationUI edit editmode';
+      this.manipulationDOM['editModeLabelSpan'] = document.createElement('span');
+      this.manipulationDOM['editModeLabelSpan'].className = 'network-manipulationLabel';
+      this.manipulationDOM['editModeLabelSpan'].innerHTML = locale['edit'];
+      this.manipulationDOM['editModeSpan'].appendChild(this.manipulationDOM['editModeLabelSpan']);
+
+      this.editModeDiv.appendChild(this.manipulationDOM['editModeSpan']);
+
+      this.manipulationDOM['editModeSpan'].onclick = this._toggleEditMode.bind(this);
+    }
+  };
+
+
+
+  /**
+   * Create the toolbar for adding Nodes
+   *
+   * @private
+   */
+  exports._createAddNodeToolbar = function() {
+    // clear the toolbar
+    this._clearManipulatorBar();
+    if (this.boundFunction) {
+      this.off('select', this.boundFunction);
+    }
+
+    var locale = this.constants.locales[this.constants.locale];
+
+    this.manipulationDOM = {};
+    this.manipulationDOM['backSpan'] = document.createElement('span');
+    this.manipulationDOM['backSpan'].className = 'network-manipulationUI back';
+    this.manipulationDOM['backLabelSpan'] = document.createElement('span');
+    this.manipulationDOM['backLabelSpan'].className = 'network-manipulationLabel';
+    this.manipulationDOM['backLabelSpan'].innerHTML = locale['back'];
+    this.manipulationDOM['backSpan'].appendChild(this.manipulationDOM['backLabelSpan']);
+
+    this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
+    this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
+
+    this.manipulationDOM['descriptionSpan'] = document.createElement('span');
+    this.manipulationDOM['descriptionSpan'].className = 'network-manipulationUI none';
+    this.manipulationDOM['descriptionLabelSpan'] = document.createElement('span');
+    this.manipulationDOM['descriptionLabelSpan'].className = 'network-manipulationLabel';
+    this.manipulationDOM['descriptionLabelSpan'].innerHTML = locale['addDescription'];
+    this.manipulationDOM['descriptionSpan'].appendChild(this.manipulationDOM['descriptionLabelSpan']);
+
+    this.manipulationDiv.appendChild(this.manipulationDOM['backSpan']);
+    this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
+    this.manipulationDiv.appendChild(this.manipulationDOM['descriptionSpan']);
+
+    // bind the icon
+    this.manipulationDOM['backSpan'].onclick = this._createManipulatorBar.bind(this);
+
+    // we use the boundFunction so we can reference it when we unbind it from the "select" event.
+    var me = this;
+    this.boundFunction = me._addNode;
+    this.on('select', this.boundFunction);
+  };
+
+
+  /**
+   * create the toolbar to connect nodes
+   *
+   * @private
+   */
+  exports._createAddEdgeToolbar = function() {
+    // clear the toolbar
+    this._clearManipulatorBar();
+    this._unselectAll(true);
+    this.freezeSimulation = true;
+
+    if (this.boundFunction) {
+      this.off('select', this.boundFunction);
+    }
+
+    var locale = this.constants.locales[this.constants.locale];
+
+    this._unselectAll();
+    this.forceAppendSelection = false;
+    this.blockConnectingEdgeSelection = true;
+
+    this.manipulationDOM = {};
+    this.manipulationDOM['backSpan'] = document.createElement('span');
+    this.manipulationDOM['backSpan'].className = 'network-manipulationUI back';
+    this.manipulationDOM['backLabelSpan'] = document.createElement('span');
+    this.manipulationDOM['backLabelSpan'].className = 'network-manipulationLabel';
+    this.manipulationDOM['backLabelSpan'].innerHTML = locale['back'];
+    this.manipulationDOM['backSpan'].appendChild(this.manipulationDOM['backLabelSpan']);
+
+    this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
+    this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
+
+    this.manipulationDOM['descriptionSpan'] = document.createElement('span');
+    this.manipulationDOM['descriptionSpan'].className = 'network-manipulationUI none';
+    this.manipulationDOM['descriptionLabelSpan'] = document.createElement('span');
+    this.manipulationDOM['descriptionLabelSpan'].className = 'network-manipulationLabel';
+    this.manipulationDOM['descriptionLabelSpan'].innerHTML = locale['edgeDescription'];
+    this.manipulationDOM['descriptionSpan'].appendChild(this.manipulationDOM['descriptionLabelSpan']);
+
+    this.manipulationDiv.appendChild(this.manipulationDOM['backSpan']);
+    this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
+    this.manipulationDiv.appendChild(this.manipulationDOM['descriptionSpan']);
+
+    // bind the icon
+    this.manipulationDOM['backSpan'].onclick = this._createManipulatorBar.bind(this);
+
+    // we use the boundFunction so we can reference it when we unbind it from the "select" event.
+    var me = this;
+    this.boundFunction = me._handleConnect;
+    this.on('select', this.boundFunction);
+
+    // temporarily overload functions
+    this.cachedFunctions["_handleTouch"] = this._handleTouch;
+    this.cachedFunctions["_manipulationReleaseOverload"] = this._manipulationReleaseOverload;
+    this.cachedFunctions["_handleDragStart"] = this._handleDragStart;
+    this.cachedFunctions["_handleDragEnd"] = this._handleDragEnd;
+    this._handleTouch = this._handleConnect;
+    this._manipulationReleaseOverload = function () {};
+    this._handleDragStart = function () {};
+    this._handleDragEnd = this._finishConnect;
+
+    // redraw to show the unselect
+    this._redraw();
+  };
+
+  /**
+   * create the toolbar to edit edges
+   *
+   * @private
+   */
+  exports._createEditEdgeToolbar = function() {
+    // clear the toolbar
+    this._clearManipulatorBar();
+    this.controlNodesActive = true;
+
+    if (this.boundFunction) {
+      this.off('select', this.boundFunction);
+    }
+
+    this.edgeBeingEdited = this._getSelectedEdge();
+    this.edgeBeingEdited._enableControlNodes();
+
+    var locale = this.constants.locales[this.constants.locale];
+
+    this.manipulationDOM = {};
+    this.manipulationDOM['backSpan'] = document.createElement('span');
+    this.manipulationDOM['backSpan'].className = 'network-manipulationUI back';
+    this.manipulationDOM['backLabelSpan'] = document.createElement('span');
+    this.manipulationDOM['backLabelSpan'].className = 'network-manipulationLabel';
+    this.manipulationDOM['backLabelSpan'].innerHTML = locale['back'];
+    this.manipulationDOM['backSpan'].appendChild(this.manipulationDOM['backLabelSpan']);
+
+    this.manipulationDOM['seperatorLineDiv1'] = document.createElement('div');
+    this.manipulationDOM['seperatorLineDiv1'].className = 'network-seperatorLine';
+
+    this.manipulationDOM['descriptionSpan'] = document.createElement('span');
+    this.manipulationDOM['descriptionSpan'].className = 'network-manipulationUI none';
+    this.manipulationDOM['descriptionLabelSpan'] = document.createElement('span');
+    this.manipulationDOM['descriptionLabelSpan'].className = 'network-manipulationLabel';
+    this.manipulationDOM['descriptionLabelSpan'].innerHTML = locale['editEdgeDescription'];
+    this.manipulationDOM['descriptionSpan'].appendChild(this.manipulationDOM['descriptionLabelSpan']);
+
+    this.manipulationDiv.appendChild(this.manipulationDOM['backSpan']);
+    this.manipulationDiv.appendChild(this.manipulationDOM['seperatorLineDiv1']);
+    this.manipulationDiv.appendChild(this.manipulationDOM['descriptionSpan']);
+
+    // bind the icon
+    this.manipulationDOM['backSpan'].onclick = this._createManipulatorBar.bind(this);
+
+    // temporarily overload functions
+    this.cachedFunctions["_handleTouch"]      = this._handleTouch;
+    this.cachedFunctions["_manipulationReleaseOverload"]  = this._manipulationReleaseOverload;
+    this.cachedFunctions["_handleTap"]        = this._handleTap;
+    this.cachedFunctions["_handleDragStart"]  = this._handleDragStart;
+    this.cachedFunctions["_handleOnDrag"]     = this._handleOnDrag;
+    this._handleTouch     = this._selectControlNode;
+    this._handleTap       = function () {};
+    this._handleOnDrag    = this._controlNodeDrag;
+    this._handleDragStart = function () {}
+    this._manipulationReleaseOverload = this._releaseControlNode;
+
+    // redraw to show the unselect
+    this._redraw();
+  };
+
+
+  /**
+   * the function bound to the selection event. It checks if you want to connect a cluster and changes the description
+   * to walk the user through the process.
+   *
+   * @private
+   */
+  exports._selectControlNode = function(pointer) {
+    this.edgeBeingEdited.controlNodes.from.unselect();
+    this.edgeBeingEdited.controlNodes.to.unselect();
+    this.selectedControlNode = this.edgeBeingEdited._getSelectedControlNode(this._XconvertDOMtoCanvas(pointer.x),this._YconvertDOMtoCanvas(pointer.y));
+    if (this.selectedControlNode !== null) {
+      this.selectedControlNode.select();
+      this.freezeSimulation = true;
+    }
+    this._redraw();
+  };
+
+
+  /**
+   * the function bound to the selection event. It checks if you want to connect a cluster and changes the description
+   * to walk the user through the process.
+   *
+   * @private
+   */
+  exports._controlNodeDrag = function(event) {
+    var pointer = this._getPointer(event.gesture.center);
+    if (this.selectedControlNode !== null && this.selectedControlNode !== undefined) {
+      this.selectedControlNode.x = this._XconvertDOMtoCanvas(pointer.x);
+      this.selectedControlNode.y = this._YconvertDOMtoCanvas(pointer.y);
+    }
+    this._redraw();
+  };
+
+
+  /**
+   *
+   * @param pointer
+   * @private
+   */
+  exports._releaseControlNode = function(pointer) {
+    var newNode = this._getNodeAt(pointer);
+    if (newNode !== null) {
+      if (this.edgeBeingEdited.controlNodes.from.selected == true) {
+        this.edgeBeingEdited._restoreControlNodes();
+        this._editEdge(newNode.id, this.edgeBeingEdited.to.id);
+        this.edgeBeingEdited.controlNodes.from.unselect();
+      }
+      if (this.edgeBeingEdited.controlNodes.to.selected == true) {
+        this.edgeBeingEdited._restoreControlNodes();
+        this._editEdge(this.edgeBeingEdited.from.id, newNode.id);
+        this.edgeBeingEdited.controlNodes.to.unselect();
+      }
+    }
+    else {
+      this.edgeBeingEdited._restoreControlNodes();
+    }
+    this.freezeSimulation = false;
+    this._redraw();
+  };
+
+  /**
+   * the function bound to the selection event. It checks if you want to connect a cluster and changes the description
+   * to walk the user through the process.
+   *
+   * @private
+   */
+  exports._handleConnect = function(pointer) {
+    if (this._getSelectedNodeCount() == 0) {
+      var node = this._getNodeAt(pointer);
+
+      if (node != null) {
+        if (node.clusterSize > 1) {
+          alert(this.constants.locales[this.constants.locale]['createEdgeError'])
+        }
+        else {
+          this._selectObject(node,false);
+          var supportNodes = this.sectors['support']['nodes'];
+
+          // create a node the temporary line can look at
+          supportNodes['targetNode'] = new Node({id:'targetNode'},{},{},this.constants);
+          var targetNode = supportNodes['targetNode'];
+          targetNode.x = node.x;
+          targetNode.y = node.y;
+
+          // create a temporary edge
+          this.edges['connectionEdge'] = new Edge({id:"connectionEdge",from:node.id,to:targetNode.id}, this, this.constants);
+          var connectionEdge = this.edges['connectionEdge'];
+          connectionEdge.from = node;
+          connectionEdge.connected = true;
+          connectionEdge.options.smoothCurves = {enabled: true,
+              dynamic: false,
+              type: "continuous",
+              roundness: 0.5
+          };
+          connectionEdge.selected = true;
+          connectionEdge.to = targetNode;
+
+          this.cachedFunctions["_handleOnDrag"] = this._handleOnDrag;
+          this._handleOnDrag = function(event) {
+            var pointer = this._getPointer(event.gesture.center);
+            var connectionEdge = this.edges['connectionEdge'];
+            connectionEdge.to.x = this._XconvertDOMtoCanvas(pointer.x);
+            connectionEdge.to.y = this._YconvertDOMtoCanvas(pointer.y);
+          };
+
+          this.moving = true;
+          this.start();
+        }
+      }
+    }
+  };
+
+  exports._finishConnect = function(event) {
+    if (this._getSelectedNodeCount() == 1) {
+      var pointer = this._getPointer(event.gesture.center);
+      // restore the drag function
+      this._handleOnDrag = this.cachedFunctions["_handleOnDrag"];
+      delete this.cachedFunctions["_handleOnDrag"];
+
+      // remember the edge id
+      var connectFromId = this.edges['connectionEdge'].fromId;
+
+      // remove the temporary nodes and edge
+      delete this.edges['connectionEdge'];
+      delete this.sectors['support']['nodes']['targetNode'];
+      delete this.sectors['support']['nodes']['targetViaNode'];
+
+      var node = this._getNodeAt(pointer);
+      if (node != null) {
+        if (node.clusterSize > 1) {
+          alert(this.constants.locales[this.constants.locale]["createEdgeError"])
+        }
+        else {
+          this._createEdge(connectFromId,node.id);
+          this._createManipulatorBar();
+        }
+      }
+      this._unselectAll();
+    }
+  };
+
+
+  /**
+   * Adds a node on the specified location
+   */
+  exports._addNode = function() {
+    if (this._selectionIsEmpty() && this.editMode == true) {
+      var positionObject = this._pointerToPositionObject(this.pointerPosition);
+      var defaultData = {id:util.randomUUID(),x:positionObject.left,y:positionObject.top,label:"new",allowedToMoveX:true,allowedToMoveY:true};
+      if (this.triggerFunctions.add) {
+        if (this.triggerFunctions.add.length == 2) {
+          var me = this;
+          this.triggerFunctions.add(defaultData, function(finalizedData) {
+            me.nodesData.add(finalizedData);
+            me._createManipulatorBar();
+            me.moving = true;
+            me.start();
+          });
+        }
+        else {
+          throw new Error('The function for add does not support two arguments (data,callback)');
+          this._createManipulatorBar();
+          this.moving = true;
+          this.start();
+        }
+      }
+      else {
+        this.nodesData.add(defaultData);
+        this._createManipulatorBar();
+        this.moving = true;
+        this.start();
+      }
+    }
+  };
+
+
+  /**
+   * connect two nodes with a new edge.
+   *
+   * @private
+   */
+  exports._createEdge = function(sourceNodeId,targetNodeId) {
+    if (this.editMode == true) {
+      var defaultData = {from:sourceNodeId, to:targetNodeId};
+      if (this.triggerFunctions.connect) {
+        if (this.triggerFunctions.connect.length == 2) {
+          var me = this;
+          this.triggerFunctions.connect(defaultData, function(finalizedData) {
+            me.edgesData.add(finalizedData);
+            me.moving = true;
+            me.start();
+          });
+        }
+        else {
+          throw new Error('The function for connect does not support two arguments (data,callback)');
+          this.moving = true;
+          this.start();
+        }
+      }
+      else {
+        this.edgesData.add(defaultData);
+        this.moving = true;
+        this.start();
+      }
+    }
+  };
+
+  /**
+   * connect two nodes with a new edge.
+   *
+   * @private
+   */
+  exports._editEdge = function(sourceNodeId,targetNodeId) {
+    if (this.editMode == true) {
+      var defaultData = {id: this.edgeBeingEdited.id, from:sourceNodeId, to:targetNodeId};
+      if (this.triggerFunctions.editEdge) {
+        if (this.triggerFunctions.editEdge.length == 2) {
+          var me = this;
+          this.triggerFunctions.editEdge(defaultData, function(finalizedData) {
+            me.edgesData.update(finalizedData);
+            me.moving = true;
+            me.start();
+          });
+        }
+        else {
+          throw new Error('The function for edit does not support two arguments (data, callback)');
+          this.moving = true;
+          this.start();
+        }
+      }
+      else {
+        this.edgesData.update(defaultData);
+        this.moving = true;
+        this.start();
+      }
+    }
+  };
+
+  /**
+   * Create the toolbar to edit the selected node. The label and the color can be changed. Other colors are derived from the chosen color.
+   *
+   * @private
+   */
+  exports._editNode = function() {
+    if (this.triggerFunctions.edit && this.editMode == true) {
+      var node = this._getSelectedNode();
+      var data = {id:node.id,
+        label: node.label,
+        group: node.options.group,
+        shape: node.options.shape,
+        color: {
+          background:node.options.color.background,
+          border:node.options.color.border,
+          highlight: {
+            background:node.options.color.highlight.background,
+            border:node.options.color.highlight.border
+          }
+        }};
+      if (this.triggerFunctions.edit.length == 2) {
+        var me = this;
+        this.triggerFunctions.edit(data, function (finalizedData) {
+          me.nodesData.update(finalizedData);
+          me._createManipulatorBar();
+          me.moving = true;
+          me.start();
+        });
+      }
+      else {
+        throw new Error('The function for edit does not support two arguments (data, callback)');
+      }
+    }
+    else {
+      throw new Error('No edit function has been bound to this button');
+    }
+  };
+
+
+
+
+  /**
+   * delete everything in the selection
+   *
+   * @private
+   */
+  exports._deleteSelected = function() {
+    if (!this._selectionIsEmpty() && this.editMode == true) {
+      if (!this._clusterInSelection()) {
+        var selectedNodes = this.getSelectedNodes();
+        var selectedEdges = this.getSelectedEdges();
+        if (this.triggerFunctions.del) {
+          var me = this;
+          var data = {nodes: selectedNodes, edges: selectedEdges};
+          if (this.triggerFunctions.del.length == 2) {
+            this.triggerFunctions.del(data, function (finalizedData) {
+              me.edgesData.remove(finalizedData.edges);
+              me.nodesData.remove(finalizedData.nodes);
+              me._unselectAll();
+              me.moving = true;
+              me.start();
+            });
+          }
+          else {
+            throw new Error('The function for delete does not support two arguments (data, callback)')
+          }
+        }
+        else {
+          this.edgesData.remove(selectedEdges);
+          this.nodesData.remove(selectedNodes);
+          this._unselectAll();
+          this.moving = true;
+          this.start();
+        }
+      }
+      else {
+        alert(this.constants.locales[this.constants.locale]["deleteClusterError"]);
+      }
+    }
+  };
 
 
 /***/ },
-/* 68 */
+/* 65 */
+/***/ function(module, exports, __webpack_require__) {
+
+  var util = __webpack_require__(1);
+  var Hammer = __webpack_require__(45);
+
+  exports._cleanNavigation = function() {
+    // clean hammer bindings
+    if (this.navigationHammers.existing.length != 0) {
+      for (var i = 0; i < this.navigationHammers.existing.length; i++) {
+        this.navigationHammers.existing[i].dispose();
+      }
+      this.navigationHammers.existing = [];
+    }
+
+    this._navigationReleaseOverload = function () {};
+
+    // clean up previous navigation items
+    if (this.navigationDivs && this.navigationDivs['wrapper'] && this.navigationDivs['wrapper'].parentNode) {
+      this.navigationDivs['wrapper'].parentNode.removeChild(this.navigationDivs['wrapper']);
+    }
+  };
+
+  /**
+   * Creation of the navigation controls nodes. They are drawn over the rest of the nodes and are not affected by scale and translation
+   * they have a triggerFunction which is called on click. If the position of the navigation controls is dependent
+   * on this.frame.canvas.clientWidth or this.frame.canvas.clientHeight, we flag horizontalAlignLeft and verticalAlignTop false.
+   * This means that the location will be corrected by the _relocateNavigation function on a size change of the canvas.
+   *
+   * @private
+   */
+  exports._loadNavigationElements = function() {
+    this._cleanNavigation();
+
+    this.navigationDivs = {};
+    var navigationDivs = ['up','down','left','right','zoomIn','zoomOut','zoomExtends'];
+    var navigationDivActions = ['_moveUp','_moveDown','_moveLeft','_moveRight','_zoomIn','_zoomOut','_zoomExtent'];
+
+    this.navigationDivs['wrapper'] = document.createElement('div');
+    this.frame.appendChild(this.navigationDivs['wrapper']);
+
+    for (var i = 0; i < navigationDivs.length; i++) {
+      this.navigationDivs[navigationDivs[i]] = document.createElement('div');
+      this.navigationDivs[navigationDivs[i]].className = 'network-navigation ' + navigationDivs[i];
+      this.navigationDivs['wrapper'].appendChild(this.navigationDivs[navigationDivs[i]]);
+
+      var hammer = Hammer(this.navigationDivs[navigationDivs[i]], {prevent_default: true});
+      hammer.on('touch', this[navigationDivActions[i]].bind(this));
+      this.navigationHammers._new.push(hammer);
+    }
+
+    this._navigationReleaseOverload = this._stopMovement;
+
+    this.navigationHammers.existing = this.navigationHammers._new;
+  };
+
+
+  /**
+   * this stops all movement induced by the navigation buttons
+   *
+   * @private
+   */
+  exports._zoomExtent = function(event) {
+    this.zoomExtent({duration:700});
+    event.stopPropagation();
+  };
+
+  /**
+   * this stops all movement induced by the navigation buttons
+   *
+   * @private
+   */
+  exports._stopMovement = function() {
+    this._xStopMoving();
+    this._yStopMoving();
+    this._stopZoom();
+  };
+
+
+  /**
+   * move the screen up
+   * By using the increments, instead of adding a fixed number to the translation, we keep fluent and
+   * instant movement. The onKeypress event triggers immediately, then pauses, then triggers frequently
+   * To avoid this behaviour, we do the translation in the start loop.
+   *
+   * @private
+   */
+  exports._moveUp = function(event) {
+    this.yIncrement = this.constants.keyboard.speed.y;
+    this.start(); // if there is no node movement, the calculation wont be done
+    event.preventDefault();
+  };
+
+
+  /**
+   * move the screen down
+   * @private
+   */
+  exports._moveDown = function(event) {
+    this.yIncrement = -this.constants.keyboard.speed.y;
+    this.start(); // if there is no node movement, the calculation wont be done
+    event.preventDefault();
+  };
+
+
+  /**
+   * move the screen left
+   * @private
+   */
+  exports._moveLeft = function(event) {
+    this.xIncrement = this.constants.keyboard.speed.x;
+    this.start(); // if there is no node movement, the calculation wont be done
+    event.preventDefault();
+  };
+
+
+  /**
+   * move the screen right
+   * @private
+   */
+  exports._moveRight = function(event) {
+    this.xIncrement = -this.constants.keyboard.speed.y;
+    this.start(); // if there is no node movement, the calculation wont be done
+    event.preventDefault();
+  };
+
+
+  /**
+   * Zoom in, using the same method as the movement.
+   * @private
+   */
+  exports._zoomIn = function(event) {
+    this.zoomIncrement = this.constants.keyboard.speed.zoom;
+    this.start(); // if there is no node movement, the calculation wont be done
+    event.preventDefault();
+  };
+
+
+  /**
+   * Zoom out
+   * @private
+   */
+  exports._zoomOut = function(event) {
+    this.zoomIncrement = -this.constants.keyboard.speed.zoom;
+    this.start(); // if there is no node movement, the calculation wont be done
+    event.preventDefault();
+  };
+
+
+  /**
+   * Stop zooming and unhighlight the zoom controls
+   * @private
+   */
+  exports._stopZoom = function(event) {
+    this.zoomIncrement = 0;
+    event && event.preventDefault();
+  };
+
+
+  /**
+   * Stop moving in the Y direction and unHighlight the up and down
+   * @private
+   */
+  exports._yStopMoving = function(event) {
+    this.yIncrement = 0;
+    event && event.preventDefault();
+  };
+
+
+  /**
+   * Stop moving in the X direction and unHighlight left and right.
+   * @private
+   */
+  exports._xStopMoving = function(event) {
+    this.xIncrement = 0;
+    event && event.preventDefault();
+  };
+
+
+/***/ },
+/* 66 */
+/***/ function(module, exports, __webpack_require__) {
+
+  exports._resetLevels = function() {
+    for (var nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        var node = this.nodes[nodeId];
+        if (node.preassignedLevel == false) {
+          node.level = -1;
+          node.hierarchyEnumerated = false;
+        }
+      }
+    }
+  };
+
+  /**
+   * This is the main function to layout the nodes in a hierarchical way.
+   * It checks if the node details are supplied correctly
+   *
+   * @private
+   */
+  exports._setupHierarchicalLayout = function() {
+    if (this.constants.hierarchicalLayout.enabled == true && this.nodeIndices.length > 0) {
+      // get the size of the largest hubs and check if the user has defined a level for a node.
+      var hubsize = 0;
+      var node, nodeId;
+      var definedLevel = false;
+      var undefinedLevel = false;
+
+      for (nodeId in this.nodes) {
+        if (this.nodes.hasOwnProperty(nodeId)) {
+          node = this.nodes[nodeId];
+          if (node.level != -1) {
+            definedLevel = true;
+          }
+          else {
+            undefinedLevel = true;
+          }
+          if (hubsize < node.edges.length) {
+            hubsize = node.edges.length;
+          }
+        }
+      }
+
+      // if the user defined some levels but not all, alert and run without hierarchical layout
+      if (undefinedLevel == true && definedLevel == true) {
+        throw new Error("To use the hierarchical layout, nodes require either no predefined levels or levels have to be defined for all nodes.");
+        this.zoomExtent(undefined,true,this.constants.clustering.enabled);
+        if (!this.constants.clustering.enabled) {
+          this.start();
+        }
+      }
+      else {
+        // setup the system to use hierarchical method.
+        this._changeConstants();
+
+        // define levels if undefined by the users. Based on hubsize
+        if (undefinedLevel == true) {
+          if (this.constants.hierarchicalLayout.layout == "hubsize") {
+            this._determineLevels(hubsize);
+          }
+          else {
+            this._determineLevelsDirected(false);
+          }
+
+        }
+        // check the distribution of the nodes per level.
+        var distribution = this._getDistribution();
+
+        // place the nodes on the canvas. This also stablilizes the system.
+        this._placeNodesByHierarchy(distribution);
+
+        // start the simulation.
+        this.start();
+      }
+    }
+  };
+
+
+  /**
+   * This function places the nodes on the canvas based on the hierarchial distribution.
+   *
+   * @param {Object} distribution | obtained by the function this._getDistribution()
+   * @private
+   */
+  exports._placeNodesByHierarchy = function(distribution) {
+    var nodeId, node;
+
+    // start placing all the level 0 nodes first. Then recursively position their branches.
+    for (var level in distribution) {
+      if (distribution.hasOwnProperty(level)) {
+
+        for (nodeId in distribution[level].nodes) {
+          if (distribution[level].nodes.hasOwnProperty(nodeId)) {
+            node = distribution[level].nodes[nodeId];
+            if (this.constants.hierarchicalLayout.direction == "UD" || this.constants.hierarchicalLayout.direction == "DU") {
+              if (node.xFixed) {
+                node.x = distribution[level].minPos;
+                node.xFixed = false;
+
+                distribution[level].minPos += distribution[level].nodeSpacing;
+              }
+            }
+            else {
+              if (node.yFixed) {
+                node.y = distribution[level].minPos;
+                node.yFixed = false;
+
+                distribution[level].minPos += distribution[level].nodeSpacing;
+              }
+            }
+            this._placeBranchNodes(node.edges,node.id,distribution,node.level);
+          }
+        }
+      }
+    }
+
+    // stabilize the system after positioning. This function calls zoomExtent.
+    this._stabilize();
+  };
+
+
+  /**
+   * This function get the distribution of levels based on hubsize
+   *
+   * @returns {Object}
+   * @private
+   */
+  exports._getDistribution = function() {
+    var distribution = {};
+    var nodeId, node, level;
+
+    // we fix Y because the hierarchy is vertical, we fix X so we do not give a node an x position for a second time.
+    // the fix of X is removed after the x value has been set.
+    for (nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        node = this.nodes[nodeId];
+        node.xFixed = true;
+        node.yFixed = true;
+        if (this.constants.hierarchicalLayout.direction == "UD" || this.constants.hierarchicalLayout.direction == "DU") {
+          node.y = this.constants.hierarchicalLayout.levelSeparation*node.level;
+        }
+        else {
+          node.x = this.constants.hierarchicalLayout.levelSeparation*node.level;
+        }
+        if (distribution[node.level] === undefined) {
+          distribution[node.level] = {amount: 0, nodes: {}, minPos:0, nodeSpacing:0};
+        }
+        distribution[node.level].amount += 1;
+        distribution[node.level].nodes[nodeId] = node;
+      }
+    }
+
+    // determine the largest amount of nodes of all levels
+    var maxCount = 0;
+    for (level in distribution) {
+      if (distribution.hasOwnProperty(level)) {
+        if (maxCount < distribution[level].amount) {
+          maxCount = distribution[level].amount;
+        }
+      }
+    }
+
+    // set the initial position and spacing of each nodes accordingly
+    for (level in distribution) {
+      if (distribution.hasOwnProperty(level)) {
+        distribution[level].nodeSpacing = (maxCount + 1) * this.constants.hierarchicalLayout.nodeSpacing;
+        distribution[level].nodeSpacing /= (distribution[level].amount + 1);
+        distribution[level].minPos = distribution[level].nodeSpacing - (0.5 * (distribution[level].amount + 1) * distribution[level].nodeSpacing);
+      }
+    }
+
+    return distribution;
+  };
+
+
+  /**
+   * this function allocates nodes in levels based on the recursive branching from the largest hubs.
+   *
+   * @param hubsize
+   * @private
+   */
+  exports._determineLevels = function(hubsize) {
+    var nodeId, node;
+
+    // determine hubs
+    for (nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        node = this.nodes[nodeId];
+        if (node.edges.length == hubsize) {
+          node.level = 0;
+        }
+      }
+    }
+
+    // branch from hubs
+    for (nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        node = this.nodes[nodeId];
+        if (node.level == 0) {
+          this._setLevel(1,node.edges,node.id);
+        }
+      }
+    }
+  };
+
+
+
+  /**
+   * this function allocates nodes in levels based on the direction of the edges
+   *
+   * @param hubsize
+   * @private
+   */
+  exports._determineLevelsDirected = function() {
+    var nodeId, node, firstNode;
+    var minLevel = 10000;
+
+    // set first node to source
+    firstNode = this.nodes[this.nodeIndices[0]];
+    firstNode.level = minLevel;
+    this._setLevelDirected(minLevel,firstNode.edges,firstNode.id);
+
+    // get the minimum level
+    for (nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        node = this.nodes[nodeId];
+        minLevel = node.level < minLevel ? node.level : minLevel;
+      }
+    }
+
+    // subtract the minimum from the set so we have a range starting from 0
+    for (nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        node = this.nodes[nodeId];
+        node.level -= minLevel;
+      }
+    }
+  };
+
+
+  /**
+   * Since hierarchical layout does not support:
+   *    - smooth curves (based on the physics),
+   *    - clustering (based on dynamic node counts)
+   *
+   * We disable both features so there will be no problems.
+   *
+   * @private
+   */
+  exports._changeConstants = function() {
+    this.constants.clustering.enabled = false;
+    this.constants.physics.barnesHut.enabled = false;
+    this.constants.physics.hierarchicalRepulsion.enabled = true;
+    this._loadSelectedForceSolver();
+    if (this.constants.smoothCurves.enabled == true) {
+      this.constants.smoothCurves.dynamic = false;
+    }
+    this._configureSmoothCurves();
+
+    var config = this.constants.hierarchicalLayout;
+    config.levelSeparation = Math.abs(config.levelSeparation);
+    if (config.direction == "RL" || config.direction == "DU") {
+      config.levelSeparation *= -1;
+    }
+
+    if (config.direction == "RL" || config.direction == "LR") {
+      if (this.constants.smoothCurves.enabled == true) {
+        this.constants.smoothCurves.type = "vertical";
+      }
+    }
+    else {
+      if (this.constants.smoothCurves.enabled == true) {
+        this.constants.smoothCurves.type = "horizontal";
+      }
+    }
+  };
+
+
+  /**
+   * This is a recursively called function to enumerate the branches from the largest hubs and place the nodes
+   * on a X position that ensures there will be no overlap.
+   *
+   * @param edges
+   * @param parentId
+   * @param distribution
+   * @param parentLevel
+   * @private
+   */
+  exports._placeBranchNodes = function(edges, parentId, distribution, parentLevel) {
+    for (var i = 0; i < edges.length; i++) {
+      var childNode = null;
+      if (edges[i].toId == parentId) {
+        childNode = edges[i].from;
+      }
+      else {
+        childNode = edges[i].to;
+      }
+
+      // if a node is conneceted to another node on the same level (or higher (means lower level))!, this is not handled here.
+      var nodeMoved = false;
+      if (this.constants.hierarchicalLayout.direction == "UD" || this.constants.hierarchicalLayout.direction == "DU") {
+        if (childNode.xFixed && childNode.level > parentLevel) {
+          childNode.xFixed = false;
+          childNode.x = distribution[childNode.level].minPos;
+          nodeMoved = true;
+        }
+      }
+      else {
+        if (childNode.yFixed && childNode.level > parentLevel) {
+          childNode.yFixed = false;
+          childNode.y = distribution[childNode.level].minPos;
+          nodeMoved = true;
+        }
+      }
+
+      if (nodeMoved == true) {
+        distribution[childNode.level].minPos += distribution[childNode.level].nodeSpacing;
+        if (childNode.edges.length > 1) {
+          this._placeBranchNodes(childNode.edges,childNode.id,distribution,childNode.level);
+        }
+      }
+    }
+  };
+
+
+  /**
+   * this function is called recursively to enumerate the barnches of the largest hubs and give each node a level.
+   *
+   * @param level
+   * @param edges
+   * @param parentId
+   * @private
+   */
+  exports._setLevel = function(level, edges, parentId) {
+    for (var i = 0; i < edges.length; i++) {
+      var childNode = null;
+      if (edges[i].toId == parentId) {
+        childNode = edges[i].from;
+      }
+      else {
+        childNode = edges[i].to;
+      }
+      if (childNode.level == -1 || childNode.level > level) {
+        childNode.level = level;
+        if (childNode.edges.length > 1) {
+          this._setLevel(level+1, childNode.edges, childNode.id);
+        }
+      }
+    }
+  };
+
+
+  /**
+   * this function is called recursively to enumerate the branched of the first node and give each node a level based on edge direction
+   *
+   * @param level
+   * @param edges
+   * @param parentId
+   * @private
+   */
+  exports._setLevelDirected = function(level, edges, parentId) {
+    this.nodes[parentId].hierarchyEnumerated = true;
+    var childNode, direction;
+    for (var i = 0; i < edges.length; i++) {
+      direction = 1;
+      if (edges[i].toId == parentId) {
+        childNode = edges[i].from;
+        direction = -1;
+      }
+      else {
+        childNode = edges[i].to;
+      }
+      if (childNode.level == -1) {
+        childNode.level = level + direction;
+      }
+    }
+
+    for (var i = 0; i < edges.length; i++) {
+      if (edges[i].toId == parentId) {childNode = edges[i].from;}
+      else {childNode = edges[i].to;}
+
+      if (childNode.edges.length > 1 && childNode.hierarchyEnumerated === false) {
+        this._setLevelDirected(childNode.level, childNode.edges, childNode.id);
+      }
+    }
+  };
+
+
+  /**
+   * Unfix nodes
+   *
+   * @private
+   */
+  exports._restoreNodes = function() {
+    for (var nodeId in this.nodes) {
+      if (this.nodes.hasOwnProperty(nodeId)) {
+        this.nodes[nodeId].xFixed = false;
+        this.nodes[nodeId].yFixed = false;
+      }
+    }
+  };
+
+
+/***/ },
+/* 67 */
 /***/ function(module, exports, __webpack_require__) {
 
   /**
@@ -34069,7 +34056,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 69 */
+/* 68 */
 /***/ function(module, exports, __webpack_require__) {
 
   /**
@@ -34228,7 +34215,7 @@ return /******/ (function(modules) { // webpackBootstrap
   };
 
 /***/ },
-/* 70 */
+/* 69 */
 /***/ function(module, exports, __webpack_require__) {
 
   /**
@@ -34630,6 +34617,19 @@ return /******/ (function(modules) { // webpackBootstrap
      }
      */
   };
+
+
+/***/ },
+/* 70 */
+/***/ function(module, exports, __webpack_require__) {
+
+  function webpackContext(req) {
+  	throw new Error("Cannot find module '" + req + "'.");
+  }
+  webpackContext.keys = function() { return []; };
+  webpackContext.resolve = webpackContext;
+  module.exports = webpackContext;
+  webpackContext.id = 70;
 
 
 /***/ },
